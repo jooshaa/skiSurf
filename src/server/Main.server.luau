@@ -16,6 +16,7 @@ local ORDER = {
 	"Income",
 	"Gifts",
 	"Round",
+	"Admin",
 }
 
 local loaded: { { name: string, system: any } } = {}

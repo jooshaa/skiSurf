@@ -23,6 +23,16 @@ local saving: { [Player]: boolean } = {} -- пока идёт запись (се
 local finalSaved: { [Player]: boolean } = {} -- после финального сохранения
 local unknownElves: { [Player]: { any } } = {} -- записи неизвестных эльфов, сохраняем как есть
 local shuttingDown = false
+local beforeSave: { (Player) -> () } = {} -- вызываются перед финальным сохранением
+
+local function runBeforeSave(player: Player)
+	for _, callback in beforeSave do
+		local ok, err = pcall(callback, player)
+		if not ok then
+			warn("[PlayerData] Ошибка перед сохранением: " .. tostring(err))
+		end
+	end
+end
 
 local function getKey(player: Player): string
 	return "Player_" .. player.UserId
@@ -392,6 +402,11 @@ function PlayerData.Reset(player: Player)
 	applyProfile(player, Migrations.DefaultProfile())
 end
 
+-- Подписка: игрок уходит, сейчас будет финальное сохранение (успеть начислить незавершённое)
+function PlayerData.OnBeforeSave(callback: (Player) -> ())
+	table.insert(beforeSave, callback)
+end
+
 function PlayerData.init()
 	-- Получаем DataStore через pcall (в неопубликованном месте недоступен)
 	local ok, err = pcall(function()
@@ -411,6 +426,7 @@ function PlayerData.start()
 	-- Сохраняем и снимаем блокировку при выходе, затем чистим таблицы
 	Players.PlayerRemoving:Connect(function(player)
 		autosaving[player] = nil
+		runBeforeSave(player)
 		saveData(player, true)
 		sessionToken[player] = nil
 		unknownElves[player] = nil
@@ -426,6 +442,7 @@ function PlayerData.start()
 		for _, player in Players:GetPlayers() do
 			pending += 1
 			task.spawn(function()
+				runBeforeSave(player)
 				saveData(player, true)
 				pending -= 1
 			end)

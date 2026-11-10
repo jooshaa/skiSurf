@@ -42,6 +42,14 @@ local deliveredListeners: { (Player, GiftSize, number) -> () } = {}
 local nextId = 0
 local mapTarget = 0
 local rng = Random.new()
+local debugNeeded: number? = nil -- только тесты в Studio: сколько несущих нужно общему подарку
+
+local function neededCarriers(gift: Gift): number
+	if gift.size.carriers > 1 and debugNeeded then
+		return debugNeeded
+	end
+	return gift.size.carriers
+end
 
 local function getRootPart(player: Player): BasePart?
 	local character = player.Character
@@ -321,13 +329,13 @@ local function joinCarry(player: Player, gift: Gift)
 	if gift.size.carriers <= 1 or (gift.state ~= "Idle" and gift.state ~= "Waiting") then
 		return
 	end
-	if #gift.carriers >= gift.size.carriers or not canTake(player, gift, G.JoinDistance) then
+	if #gift.carriers >= neededCarriers(gift) or not canTake(player, gift, G.JoinDistance) then
 		return
 	end
 	table.insert(gift.carriers, player)
 	carrying[player] = gift
 	player:SetAttribute("Carrying", gift.size.id)
-	if #gift.carriers >= gift.size.carriers then
+	if #gift.carriers >= neededCarriers(gift) then
 		startCarry(gift)
 	else
 		gift.state = "Waiting"
@@ -628,6 +636,13 @@ end
 -- Случайная свободная точка в районе (nil = любой район по весам)
 function Gifts.RandomPosition(district: Config.District?): Vector3
 	return randomPosition(district)
+end
+
+-- Только для тестов в Studio: общий подарок можно поднять меньшим числом игроков
+function Gifts.DebugSetNeeded(count: number?)
+	if RunService:IsStudio() then
+		debugNeeded = count
+	end
 end
 
 function Gifts.init()

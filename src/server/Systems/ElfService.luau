@@ -101,6 +101,12 @@ function ElfService.Grant(
 	return elf, nil
 end
 
+-- Эльф из подарка: редкость уже выбрана по таблице размера, мутация роллится здесь
+function ElfService.GrantRolled(player: Player, rarityName: string): StringValue?
+	local elf = ElfService.Grant(player, rarityName, nil)
+	return elf
+end
+
 local function onPlayerAdded(player: Player)
 	local folder = player:WaitForChild("Elves", S.LoadTimeout)
 	if not folder or player.Parent ~= Players then
