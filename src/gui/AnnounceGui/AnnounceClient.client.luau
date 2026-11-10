@@ -1,20 +1,25 @@
+--!strict
 -- AnnounceClient: показывает объявления и уведомления, плавно скрывает
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 
-local DragonConfig = require(ReplicatedStorage:WaitForChild("DragonConfig"))
-local S = DragonConfig.Settings
-local Announce = ReplicatedStorage:WaitForChild("Announce")
-local Notify = ReplicatedStorage:WaitForChild("Notify")
+local Config = require(ReplicatedStorage:WaitForChild("Config") :: ModuleScript) :: any
+local Remotes = require(ReplicatedStorage:WaitForChild("Remotes") :: ModuleScript) :: any
 
-local gui = script.Parent
-local announceLabel = gui:WaitForChild("Label")
-local noticeLabel = gui:WaitForChild("Notice")
+local S = Config.Settings
+local Announce: RemoteEvent = Remotes.Get("Announce")
+local Notify: RemoteEvent = Remotes.Get("Notify")
+
+local gui = script.Parent :: Instance
+local announceLabel = gui:WaitForChild("Label") :: TextLabel
+local noticeLabel = gui:WaitForChild("Notice") :: TextLabel
+
+type ShowState = { token: number, tween: Tween? }
 
 -- Состояние показа для каждой метки
-local state = {}
+local state: { [TextLabel]: ShowState } = {}
 
-local function show(label, text, color)
+local function show(label: TextLabel, text: string, color: Color3?)
 	local st = state[label] or { token = 0 }
 	state[label] = st
 	st.token += 1
@@ -32,22 +37,23 @@ local function show(label, text, color)
 		if st.token ~= myToken then
 			return -- уже показано что-то новое
 		end
-		st.tween = TweenService:Create(label, TweenInfo.new(S.AnnounceFadeTime), {
+		local tween = TweenService:Create(label, TweenInfo.new(S.AnnounceFadeTime), {
 			TextTransparency = 1,
 			TextStrokeTransparency = 1,
 		})
-		st.tween:Play()
+		st.tween = tween
+		tween:Play()
 	end)
 end
 
-Announce.OnClientEvent:Connect(function(playerName, dragonName, color)
+Announce.OnClientEvent:Connect(function(playerName: any, elfName: any, color: any)
 	show(
 		announceLabel,
-		tostring(playerName) .. " получил " .. tostring(dragonName) .. "!",
-		color
+		tostring(playerName) .. " 🎁 " .. tostring(elfName) .. "!",
+		if typeof(color) == "Color3" then color else nil
 	)
 end)
 
-Notify.OnClientEvent:Connect(function(text, color)
-	show(noticeLabel, tostring(text), color)
+Notify.OnClientEvent:Connect(function(text: any, color: any)
+	show(noticeLabel, tostring(text), if typeof(color) == "Color3" then color else nil)
 end)

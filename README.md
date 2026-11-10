@@ -11,16 +11,17 @@ Roblox game built with [Rojo](https://rojo.space).
 
 ## Structure
 
-Paths match the existing place, so `require` calls keep working.
+Rules of the game live in `CLAUDE.md`. All numbers live in `src/shared/Config.luau`.
 
-- `src/shared` → ReplicatedStorage — DragonConfig, DragonVisuals
-- `src/server` → ServerScriptService — PlayerData, EggSystem, BaseSystem
-- `src/client` → StarterPlayer/StarterPlayerScripts — DragonAnimator
+- `src/shared` → ReplicatedStorage — Config, Elves, ElfVisuals, Remotes
+- `src/server` → ServerScriptService — `Main.server.luau` boots the modules in `Systems/`
+- `src/client` → StarterPlayer/StarterPlayerScripts — HUD and effects
 - `src/gui/AnnounceGui` → StarterGui/AnnounceGui — AnnounceClient
-- `ServerPackages` → ServerScriptService/ServerPackages — Wally server packages (ProfileStore)
+- `ServerPackages` → ServerScriptService/ServerPackages — Wally server packages (ProfileStore, not used yet)
 
-Instances that are not in `src/` (RemoteEvents, GUI labels, Workspace) live only in the
-place file; Rojo leaves them alone (`$ignoreUnknownInstances`).
+The map (workshops, sleigh, districts) is built by `Systems/World.luau` at server start.
+Instances that are not in `src/` live only in the place file; Rojo leaves them alone
+(`$ignoreUnknownInstances`).
 
 ## Checks
 
