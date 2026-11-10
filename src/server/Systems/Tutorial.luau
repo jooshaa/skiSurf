@@ -96,7 +96,7 @@ local function isOpenGround(position: Vector3): boolean
 	if not Gifts.HasGround(position) then
 		return false
 	end
-	local clearance = Config.World.WorkshopSize.X * 0.75
+	local clearance = Config.World.WorkshopSize.X * F.NewbieGiftWorkshopClearance
 	for _, pad in World.GetWorkshops() do
 		if ((pad.Position - position) * Vector3.new(1, 0, 1)).Magnitude < clearance then
 			return false
@@ -115,6 +115,9 @@ local function onPlayer(player: Player)
 		task.wait(0.2)
 	end
 
+	if player.Parent ~= Players then
+		return -- вышел, пока ждали профиль: не оставляем подарок-подсказку без хозяина
+	end
 	if player:GetAttribute("TutorialDone") ~= true then
 		begin(player)
 	else
@@ -211,8 +214,10 @@ function Tutorial.start()
 							break
 						end
 						local angle = rng:NextNumber() * math.pi * 2
-						local distance =
-							rng:NextNumber(F.NewbieGiftRadius * 0.4, F.NewbieGiftRadius)
+						local distance = rng:NextNumber(
+							F.NewbieGiftRadius * F.NewbieGiftInnerRadius,
+							F.NewbieGiftRadius
+						)
 						local position = root.Position
 							+ Vector3.new(math.cos(angle) * distance, 0, math.sin(angle) * distance)
 						if isOpenGround(position) then

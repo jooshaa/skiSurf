@@ -50,7 +50,11 @@ function Income.start()
 		while true do
 			local elapsed = task.wait(S.IncomeInterval)
 			for player, amount in income do
-				if amount > 0 then
+				if player.Parent ~= Players then
+					-- Запись могла вернуться отложенным пересчётом уже после выхода игрока
+					income[player] = nil
+					remainder[player] = nil
+				elseif amount > 0 then
 					local total = (remainder[player] or 0) + amount * elapsed
 					local whole = math.floor(total)
 					remainder[player] = total - whole

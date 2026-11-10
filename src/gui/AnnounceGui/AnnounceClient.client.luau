@@ -11,8 +11,29 @@ local Announce: RemoteEvent = Remotes.Get("Announce")
 local Notify: RemoteEvent = Remotes.Get("Notify")
 
 local gui = script.Parent :: Instance
-local announceLabel = gui:WaitForChild("Label") :: TextLabel
-local noticeLabel = gui:WaitForChild("Notice") :: TextLabel
+-- Метки лежат в файле места; если их там нет, создаём такие же, чтобы уведомления не терялись
+local function getLabel(name: string, positionY: number): TextLabel
+	local existing = gui:WaitForChild(name, 3)
+	if existing and existing:IsA("TextLabel") then
+		return existing
+	end
+	local label = Instance.new("TextLabel")
+	label.Name = name
+	label.AnchorPoint = Vector2.new(0.5, 0.5)
+	label.Position = UDim2.fromScale(0.5, positionY)
+	label.Size = UDim2.fromScale(0.7, 0.08)
+	label.BackgroundTransparency = 1
+	label.Text = ""
+	label.TextTransparency = 1
+	label.TextStrokeTransparency = 1
+	label.TextScaled = true
+	label.Font = Enum.Font.GothamBold
+	label.Parent = gui
+	return label
+end
+
+local announceLabel = getLabel("Label", 0.3)
+local noticeLabel = getLabel("Notice", 0.8)
 
 type ShowState = { token: number, tween: Tween? }
 
@@ -20,7 +41,7 @@ type ShowState = { token: number, tween: Tween? }
 local state: { [TextLabel]: ShowState } = {}
 
 local function show(label: TextLabel, text: string, color: Color3?)
-	local st = state[label] or { token = 0 }
+	local st: ShowState = state[label] or { token = 0 }
 	state[label] = st
 	st.token += 1
 	local myToken = st.token

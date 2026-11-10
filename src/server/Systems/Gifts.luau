@@ -418,6 +418,7 @@ local function createGift(
 			detach(gift, player)
 		end
 		gifts[model] = nil
+		task.defer(model.Destroy, model) -- не оставляем пустую модель с тегом
 		if gift.source == "Map" then
 			task.delay(G.RespawnTime, fillMapLater)
 		end

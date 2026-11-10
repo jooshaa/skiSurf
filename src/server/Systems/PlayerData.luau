@@ -23,6 +23,7 @@ local saving: { [Player]: boolean } = {} -- пока идёт запись (се
 local finalSaved: { [Player]: boolean } = {} -- после финального сохранения
 local unknownElves: { [Player]: { any } } = {} -- записи неизвестных эльфов, сохраняем как есть
 local shuttingDown = false
+local inFlight = 0 -- финальные сохранения, начатые при выходе игроков: их ждёт BindToClose
 local beforeSave: { (Player) -> () } = {} -- вызываются перед финальным сохранением
 local onReset: { (Player) -> () } = {} -- вызываются после сброса профиля
 
@@ -233,6 +234,9 @@ local function saveData(player: Player, releaseLock: boolean)
 	if not token or finalSaved[player] then
 		return
 	end
+	-- Финальное ли это сохранение, решаем в момент снимка: автосейв, начатый до выключения
+	-- сервера, не должен выдать свой старый снимок за финальный
+	local final = releaseLock or shuttingDown
 	-- Снимок данных берём сразу, пока объекты игрока точно живы
 	local data = serialize(player)
 	if not data then
@@ -265,7 +269,7 @@ local function saveData(player: Player, releaseLock: boolean)
 			end
 			-- Снимаем блокировку только при финальном сохранении: выход или выключение сервера
 			-- (не по player.Parent: иначе автосейв в полёте снимет блокировку раньше финального сохранения)
-			local release = releaseLock or shuttingDown
+			local release = final
 			data.lock = if release then nil else { token = token, time = os.time() }
 			return data
 		end)
@@ -286,7 +290,7 @@ local function saveData(player: Player, releaseLock: boolean)
 		end
 		return
 	end
-	if ok and (releaseLock or shuttingDown) then
+	if ok and final then
 		finalSaved[player] = true
 	end
 end
@@ -309,7 +313,9 @@ local function onPlayerAdded(player: Player)
 	local status, data = loadData(player, token)
 	if player.Parent ~= Players then
 		if status == "ok" then
+			inFlight += 1
 			releaseLockOnly(getKey(player), token) -- захватили, но игрок уже ушёл
+			inFlight -= 1
 		end
 		return
 	end
@@ -443,8 +449,10 @@ function PlayerData.start()
 	-- Сохраняем и снимаем блокировку при выходе, затем чистим таблицы
 	Players.PlayerRemoving:Connect(function(player)
 		autosaving[player] = nil
+		inFlight += 1
 		runBeforeSave(player)
 		saveData(player, true)
+		inFlight -= 1
 		sessionToken[player] = nil
 		unknownElves[player] = nil
 		saving[player] = nil
@@ -468,7 +476,8 @@ function PlayerData.start()
 			then S.BindToCloseStudioTimeout
 			else S.BindToCloseTimeout
 		local deadline = os.clock() + timeout
-		while pending > 0 and os.clock() < deadline do
+		-- Ждём и сохранения только что вышедших: последний игрок ушёл, сервер закрывается
+		while (pending > 0 or inFlight > 0) and os.clock() < deadline do
 			task.wait(0.1)
 		end
 	end)

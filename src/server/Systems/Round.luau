@@ -100,8 +100,9 @@ local function openDeliveries(player: Player, quotaMet: boolean): Result
 		if elf then
 			table.insert(result.elves, { name = elf.Name, color = rarity.color })
 		else
-			-- Эльфа некуда положить: ничего не теряем, отдаём его доход монетами
-			amount += rarity.income * Config.Elves.OverflowCoinSeconds
+			-- Эльфа некуда положить: ничего не теряем. Клетка дневника засчитывается,
+			-- а доход эльфа (с мутацией) отдаётся монетами
+			amount += ElfService.ConvertOverflow(player, rarity.name)
 		end
 		coins += amount
 	end
@@ -220,7 +221,9 @@ local function runCycle(first: boolean)
 			local result = openDeliveries(player, quotaMet)
 			result.delivered = delivered
 			result.target = target
-			Remotes.Get("RoundResult"):FireClient(player, result)
+			if result.gifts > 0 then -- кто ничего не сдал, тому пустое окно не показываем
+				Remotes.Get("RoundResult"):FireClient(player, result)
+			end
 		end)
 		if not ok then
 			warn(

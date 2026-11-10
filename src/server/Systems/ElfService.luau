@@ -151,6 +151,18 @@ function ElfService.GrantRolled(player: Player, rarityName: string): StringValue
 	return elf
 end
 
+-- Хранилище полно: эльф всё равно роллится и попадает в дневник, но вместо него монеты.
+-- Возвращает сумму монет (доход эльфа за OverflowCoinSeconds секунд)
+function ElfService.ConvertOverflow(player: Player, rarityName: string): number
+	local rarity = Elves.GetRarity(rarityName)
+	if not rarity or player:GetAttribute("ProfileReady") ~= true then
+		return 0
+	end
+	local mutation = ElfService.RollMutationFor(player)
+	recordDiary(player, rarity.name, mutation.name)
+	return Elves.Income(rarity, mutation) * Config.Elves.OverflowCoinSeconds
+end
+
 local function onPlayerAdded(player: Player)
 	local folder = player:WaitForChild("Elves", S.LoadTimeout)
 	if not folder or player.Parent ~= Players then
