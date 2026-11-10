@@ -12,6 +12,7 @@ local Workspace = game:GetService("Workspace")
 local Config = require(ReplicatedStorage.Config)
 local Remotes = require(ReplicatedStorage.Remotes)
 local RateLimit = require(script.Parent.Parent.RateLimit)
+local PlayerData = require(script.Parent.PlayerData)
 local World = require(script.Parent.World)
 
 local S = Config.Settings
@@ -30,6 +31,7 @@ export type Gift = {
 	weld: WeldConstraint?,
 	availableAt: number, -- os.clock(), раньше поднять нельзя
 	lastDropped: number, -- os.clock() последнего падения
+	createdAt: number,
 	reservedFor: Player?, -- подарок первой минуты: поднять может только этот игрок
 	lastPosition: Vector3,
 	lastCheck: number,
@@ -400,6 +402,7 @@ local function createGift(
 		weld = nil,
 		availableAt = 0,
 		lastDropped = 0,
+		createdAt = os.clock(),
 		reservedFor = nil,
 		lastPosition = resting.Position,
 		lastCheck = os.clock(),
@@ -644,7 +647,10 @@ end
 
 -- Маленький подарок в заданной точке (первая минута, защита новичка).
 -- reservedFor: поднять может только этот игрок, пока подарок не побывал у него в руках
-function Gifts.SpawnSmallAt(position: Vector3, reservedFor: Player?): Gift
+function Gifts.SpawnSmallAt(position: Vector3, reservedFor: Player?): Gift?
+	if not groundY(position) then
+		return nil -- под точкой нет земли: подарок повис бы над пустотой
+	end
 	local gift = createGift(G.Sizes.Small, if reservedFor then "Tutorial" else "Extra", position)
 	gift.reservedFor = reservedFor
 	return gift
@@ -654,6 +660,21 @@ end
 function Gifts.Remove(gift: Gift)
 	if gifts[gift.model] == gift and gift.state ~= "Carried" then
 		removeGift(gift)
+	end
+end
+
+-- Есть ли земля под точкой
+function Gifts.HasGround(position: Vector3): boolean
+	return groundY(position) ~= nil
+end
+
+-- Убрать лежащие подарки источника source старше maxAge секунд
+function Gifts.RemoveStale(source: string, maxAge: number)
+	local now = os.clock()
+	for _, gift in gifts do
+		if gift.source == source and gift.state == "Idle" and now - gift.createdAt > maxAge then
+			removeGift(gift)
+		end
 	end
 end
 
@@ -718,6 +739,11 @@ function Gifts.DebugSetNeeded(count: number?)
 		debugNeeded = count
 	end
 end
+
+-- Сброс профиля: игрок отпускает подарок
+PlayerData.OnReset(function(player)
+	release(player)
+end)
 
 function Gifts.init()
 	container = Instance.new("Folder")

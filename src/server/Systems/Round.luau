@@ -141,6 +141,9 @@ end
 -- Пролёт: клиенты рисуют Санту, сервер роняет подарки по ходу полёта
 local function flyby()
 	lastFlyby = os.clock()
+	for _, player in Players:GetPlayers() do
+		player:SetAttribute("FlybySeen", true) -- первый пролёт для новичка больше не нужен
+	end
 	Remotes.Get("SantaFlyby"):FireAllClients(R.FlybyFrom, R.FlybyTo, now(), R.FlybyDuration)
 
 	local drops: { { size: string, district: Config.District? } } = {}
@@ -286,6 +289,13 @@ function Round.start()
 			-- Вышел во время анимации отлёта при выполненной норме: бонус сохраняется
 			openDeliveries(player, phase == "Departing" and cycleQuotaMet)
 		end
+	end)
+
+	-- Сброс профиля: сданные до сброса подарки не переходят в новый профиль
+	PlayerData.OnReset(function(player)
+		pending[player] = nil
+		player:SetAttribute("PendingGifts", 0)
+		player:SetAttribute("Contribution", 0)
 	end)
 
 	Players.PlayerAdded:Connect(function(player)

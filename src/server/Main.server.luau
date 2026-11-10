@@ -17,6 +17,7 @@ local ORDER = {
 	"Gifts",
 	"Round",
 	"Hazards",
+	"Tutorial",
 	"Admin",
 }
 

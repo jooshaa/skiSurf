@@ -21,6 +21,7 @@ function Migrations.DefaultProfile(now: number?): any
 		diaryTiers = 0,
 		firstJoin = now or os.time(),
 		tutorialDone = false,
+		flybySeen = false,
 	}
 end
 
@@ -57,6 +58,7 @@ local STEPS: { [number]: (any) -> any } = {
 			diaryTiers = 0,
 			firstJoin = 0, -- старый игрок: не новичок
 			tutorialDone = true,
+			flybySeen = true,
 			lock = data.lock,
 		}
 	end,
@@ -118,6 +120,7 @@ function Migrations.Migrate(raw: any, now: number?): any
 	data.diaryTiers = sanitizeInt(data.diaryTiers, 0, 0, math.floor(100 / Config.Diary.TierPercent))
 	data.firstJoin = sanitizeInt(data.firstJoin, 0, 0, 2 ^ 53)
 	data.tutorialDone = data.tutorialDone == true
+	data.flybySeen = data.flybySeen == true
 	return data
 end
 

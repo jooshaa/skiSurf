@@ -24,6 +24,7 @@ local finalSaved: { [Player]: boolean } = {} -- после финального 
 local unknownElves: { [Player]: { any } } = {} -- записи неизвестных эльфов, сохраняем как есть
 local shuttingDown = false
 local beforeSave: { (Player) -> () } = {} -- вызываются перед финальным сохранением
+local onReset: { (Player) -> () } = {} -- вызываются после сброса профиля
 
 local function runBeforeSave(player: Player)
 	for _, callback in beforeSave do
@@ -188,6 +189,7 @@ local function serialize(player: Player): any
 		diaryTiers = player:GetAttribute("DiaryTiers") or 0,
 		firstJoin = player:GetAttribute("FirstJoin") or 0,
 		tutorialDone = player:GetAttribute("TutorialDone") == true,
+		flybySeen = player:GetAttribute("FlybySeen") == true,
 	}
 end
 
@@ -203,6 +205,7 @@ local function applyProfile(player: Player, data: any): number
 	player:SetAttribute("DiaryTiers", data.diaryTiers)
 	player:SetAttribute("FirstJoin", data.firstJoin)
 	player:SetAttribute("TutorialDone", data.tutorialDone)
+	player:SetAttribute("FlybySeen", data.flybySeen == true)
 
 	-- Восстанавливаем эльфов и только потом показываем папку
 	local existing = player:FindFirstChild("Elves")
@@ -325,8 +328,14 @@ local function onPlayerAdded(player: Player)
 			return
 		end
 		data = Migrations.DefaultProfile()
+		if not RunService:IsStudio() then
+			-- Сбой загрузки: это может быть давний игрок, не показываем ему обучение и бонусы новичка
+			data.firstJoin = 0
+			data.tutorialDone = true
+			data.flybySeen = true
+		end
 	end
-	if data.firstJoin == 0 and not data.tutorialDone then
+	if status == "ok" and data.firstJoin == 0 and not data.tutorialDone then
 		data.firstJoin = os.time()
 	end
 
@@ -400,6 +409,14 @@ function PlayerData.Reset(player: Player)
 		return
 	end
 	applyProfile(player, Migrations.DefaultProfile())
+	for _, callback in onReset do
+		task.spawn(callback, player)
+	end
+end
+
+-- Подписка: профиль игрока сброшен, другие системы чистят своё состояние
+function PlayerData.OnReset(callback: (Player) -> ())
+	table.insert(onReset, callback)
 end
 
 -- Подписка: игрок уходит, сейчас будет финальное сохранение (успеть начислить незавершённое)
