@@ -29,6 +29,8 @@ export type Gift = {
 	carriers: { Player },
 	weld: WeldConstraint?,
 	availableAt: number, -- os.clock(), раньше поднять нельзя
+	lastDropped: number, -- os.clock() последнего падения
+	reservedFor: Player?, -- подарок первой минуты: поднять может только этот игрок
 	lastPosition: Vector3,
 	lastCheck: number,
 }
@@ -102,8 +104,8 @@ end
 local function publish(gift: Gift)
 	gift.model:SetAttribute("State", gift.state)
 	gift.model:SetAttribute("Carriers", #gift.carriers)
-	if gift.state ~= "Waiting" then
-		gift.model:SetAttribute("HelpUntil", nil)
+	if gift.state == "Carried" then
+		gift.model:SetAttribute("HelpUntil", nil) -- помощь пришла; на земле призыв остаётся
 	end
 	for _, player in gift.carriers do
 		player:SetAttribute("CarryWaiting", gift.state == "Waiting")
@@ -226,6 +228,8 @@ end
 -- Подарок падает на землю и ждёт: поднять может любой
 -- voluntary: игрок сам отпустил, обратно в руки подарок не возвращаем
 local function drop(gift: Gift, voluntary: boolean?)
+	-- Честность считаем до того, как отцепим несущих: от их скорости зависит допуск
+	local honest = gift.state ~= "Carried" or isHonest(gift, os.clock())
 	if gift.weld then
 		gift.weld:Destroy()
 		gift.weld = nil
@@ -235,7 +239,6 @@ local function drop(gift: Gift, voluntary: boolean?)
 	end
 	-- Куда положить: туда, где подарок сейчас, если он пришёл туда честно и там есть земля.
 	-- Иначе в последнюю честную точку: телепорт не продвигает подарок, край карты его не съедает.
-	local honest = gift.state ~= "Carried" or isHonest(gift, os.clock())
 	local resting = if honest then restingCFrame(gift, gift.root.Position) else nil
 	resting = resting or restingCFrame(gift, gift.lastPosition) or CFrame.new(gift.lastPosition)
 	gift.root.AssemblyLinearVelocity = Vector3.zero
@@ -243,6 +246,7 @@ local function drop(gift: Gift, voluntary: boolean?)
 	gift.root.Anchored = true
 	gift.root.CFrame = resting :: CFrame
 	gift.lastPosition = gift.root.Position
+	gift.lastDropped = os.clock()
 	gift.root.CanTouch = true
 	gift.state = "Idle"
 	gift.availableAt = os.clock() + G.PickupCooldown
@@ -268,6 +272,9 @@ local function canTake(player: Player, gift: Gift, maxDistance: number): BasePar
 	if carrying[player] or os.clock() < gift.availableAt then
 		return nil
 	end
+	if gift.reservedFor and gift.reservedFor ~= player then
+		return nil
+	end
 	if player:GetAttribute("ProfileReady") ~= true then
 		return nil
 	end
@@ -288,6 +295,20 @@ end
 local function startCarry(gift: Gift)
 	gift.state = "Carried"
 	gift.lastPosition = gift.root.Position
+	if gift.size.carriers > 1 then
+		-- Общий подарок сразу прыгает к центру несущих: путь меряем от этого центра
+		local sum, count = Vector3.zero, 0
+		for _, player in gift.carriers do
+			local rootPart = getRootPart(player)
+			if rootPart then
+				sum += rootPart.Position
+				count += 1
+			end
+		end
+		if count > 0 then
+			gift.lastPosition = sum / count
+		end
+	end
 	gift.lastCheck = os.clock()
 	gift.root.CanTouch = false
 	-- Все несущие идут со скоростью самого медленного (CLAUDE.md, раздел 4.3)
@@ -312,6 +333,7 @@ function pickupSmall(player: Player, gift: Gift)
 	end
 	table.insert(gift.carriers, player)
 	carrying[player] = gift
+	gift.reservedFor = nil -- побывал в руках: дальше обычный подарок
 	player:SetAttribute("Carrying", gift.size.id)
 
 	gift.root.Anchored = false
@@ -377,6 +399,8 @@ local function createGift(
 		carriers = {},
 		weld = nil,
 		availableAt = 0,
+		lastDropped = 0,
+		reservedFor = nil,
 		lastPosition = resting.Position,
 		lastCheck = os.clock(),
 	}
@@ -587,8 +611,21 @@ function Gifts.OnDelivered(callback: (Player, GiftSize, number) -> ())
 	table.insert(deliveredListeners, callback)
 end
 
+-- Несёт ли игрок поднятый подарок (ожидание остальных несущих не считается)
 function Gifts.IsCarrying(player: Player): boolean
-	return carrying[player] ~= nil
+	local gift = carrying[player]
+	return gift ~= nil and gift.state == "Carried"
+end
+
+-- Все поднятые подарки: список несущих каждого (для помех)
+function Gifts.GetCarriedGroups(): { { Player } }
+	local groups = {}
+	for _, gift in gifts do
+		if gift.state == "Carried" then
+			table.insert(groups, table.clone(gift.carriers))
+		end
+	end
+	return groups
 end
 
 -- Отпустить подарок игрока (помехи, смерть, выход)
@@ -605,9 +642,45 @@ function Gifts.SpawnDrop(sizeId: string, position: Vector3): Gift?
 	return createGift(size, "Flyby", position, G.DropFallTime)
 end
 
--- Маленький подарок в заданной точке (первая минута, защита новичка)
-function Gifts.SpawnSmallAt(position: Vector3): Gift
-	return createGift(G.Sizes.Small, "Extra", position)
+-- Маленький подарок в заданной точке (первая минута, защита новичка).
+-- reservedFor: поднять может только этот игрок, пока подарок не побывал у него в руках
+function Gifts.SpawnSmallAt(position: Vector3, reservedFor: Player?): Gift
+	local gift = createGift(G.Sizes.Small, if reservedFor then "Tutorial" else "Extra", position)
+	gift.reservedFor = reservedFor
+	return gift
+end
+
+-- Убрать лежащий подарок (подсказка первой минуты больше не нужна)
+function Gifts.Remove(gift: Gift)
+	if gifts[gift.model] == gift and gift.state ~= "Carried" then
+		removeGift(gift)
+	end
+end
+
+function Gifts.CountBySource(source: string): number
+	local count = 0
+	for _, gift in gifts do
+		if gift.source == source then
+			count += 1
+		end
+	end
+	return count
+end
+
+-- Ближайший лежащий маленький подарок, который никому не отдан
+function Gifts.NearestSmall(position: Vector3): Vector3?
+	local best: Vector3? = nil
+	local bestDistance = math.huge
+	for _, gift in gifts do
+		if gift.size.carriers == 1 and gift.state == "Idle" and not gift.reservedFor then
+			local distance = (gift.root.Position - position).Magnitude
+			if distance < bestDistance then
+				best = gift.root.Position
+				bestDistance = distance
+			end
+		end
+	end
+	return best
 end
 
 -- Сколько лежащих маленьких подарков в радиусе от точки
@@ -627,7 +700,8 @@ end
 -- Те, что прямо сейчас несут, остаются: их ещё можно сдать.
 function Gifts.ClearFlyby()
 	for _, gift in gifts do
-		if gift.source == "Flyby" and gift.state ~= "Carried" then
+		local justDropped = os.clock() - gift.lastDropped < G.ClearGraceTime
+		if gift.source == "Flyby" and gift.state ~= "Carried" and not justDropped then
 			removeGift(gift)
 		end
 	end

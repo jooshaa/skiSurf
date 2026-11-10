@@ -16,6 +16,7 @@ local ORDER = {
 	"Income",
 	"Gifts",
 	"Round",
+	"Hazards",
 	"Admin",
 }
 

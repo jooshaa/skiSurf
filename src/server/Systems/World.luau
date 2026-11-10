@@ -255,6 +255,25 @@ local function buildSleigh()
 	sleigh.ModelStreamingMode = Enum.ModelStreamingMode.Persistent -- сани видны всем издалека
 end
 
+-- Районы с помехой «лёд»: скользкое покрытие поверх земли
+local function buildDistricts()
+	local container = make("Folder", { Name = "Districts" }, folder)
+	for _, district in Config.Districts do
+		if district.ice then
+			local ice = block(
+				district.id .. "Ice",
+				Vector3.new(district.size.X, Config.Ice.Thickness, district.size.Y),
+				CFrame.new(district.center + Vector3.new(0, Config.Ice.Thickness / 2, 0)),
+				Color3.fromRGB(170, 215, 255),
+				container
+			)
+			ice.Material = Enum.Material.Ice
+			ice.CustomPhysicalProperties =
+				PhysicalProperties.new(0.9, Config.Ice.Friction, 0, Config.Ice.FrictionWeight, 1)
+		end
+	end
+end
+
 -- Зона сдачи и кнопка «Сдать» (для системы подарков)
 function World.GetSleighParts(): (Part?, ProximityPrompt?)
 	return deliverZone, deliverPrompt
@@ -280,6 +299,7 @@ function World.init()
 	buildSpawn()
 	buildPlaza()
 	buildSleigh()
+	buildDistricts()
 	buildWorkshops()
 end
 

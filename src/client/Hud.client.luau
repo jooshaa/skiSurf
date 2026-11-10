@@ -184,6 +184,17 @@ Remotes.Get("RoundState").OnClientEvent:Connect(function(newState: any)
 end)
 updateQuota()
 
+-- Первая минута: полоска нормы и таймер появляются после первого эльфа (CLAUDE.md, раздел 6)
+local function inTutorial(): boolean
+	local stage = player:GetAttribute("TutorialStage")
+	return stage == 1 or stage == 2
+end
+local function updateTutorial()
+	quota.Visible = not inTutorial()
+end
+player:GetAttributeChangedSignal("TutorialStage"):Connect(updateTutorial)
+updateTutorial()
+
 -- Таймер считаем локально от серверного времени, раз в четверть секунды
 local accumulated = 0
 RunService.Heartbeat:Connect(function(deltaTime)
@@ -192,7 +203,7 @@ RunService.Heartbeat:Connect(function(deltaTime)
 		return
 	end
 	accumulated = 0
-	if state.endsAt <= 0 then
+	if state.endsAt <= 0 or inTutorial() then
 		timer.Visible = false
 		return
 	end
