@@ -15,6 +15,9 @@ local RateLimit = {}
 
 -- true, если запрос разрешён; channel разделяет лимиты разных действий
 function RateLimit.Allow(player: Player, channel: string): boolean
+	if player.Parent ~= Players then
+		return false -- игрок уже вышел: не создаём запись заново
+	end
 	local now = os.clock()
 	local perPlayer = buckets[player]
 	if not perPlayer then

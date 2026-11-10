@@ -14,6 +14,8 @@ local ORDER = {
 	"ElfService",
 	"Workshop",
 	"Income",
+	"Gifts",
+	"Round",
 }
 
 local loaded: { { name: string, system: any } } = {}

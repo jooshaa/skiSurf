@@ -10,6 +10,8 @@ local NAMES = {
 	"Announce", -- (playerName, elfName, color) редкий эльф, всем
 	"Notify", -- (text, color) короткое уведомление одному игроку
 	"RoundState", -- ({phase, delivered, target, endsAt}) норма и таймер для HUD
+	"SantaFlyby", -- (from, to, startTime, duration) пролёт Санты, рисует клиент
+	"RoundResult", -- ({gifts, coins, elves, quotaMet, delivered, target}) итоги отлёта
 	"DropGift", -- клиент -> сервер: отпустить подарок
 	"CallHelp", -- клиент -> сервер: позвать на помощь к общему подарку
 }
