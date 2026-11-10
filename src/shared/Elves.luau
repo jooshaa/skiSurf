@@ -77,6 +77,26 @@ function Elves.DiaryKey(rarityName: string, mutationName: string): string
 	return rarityName .. ":" .. mutationName
 end
 
+-- Сколько всего клеток в дневнике: редкости x мутации
+function Elves.DiaryTotal(): number
+	return #Config.Rarities * #Config.Mutations
+end
+
+-- Разобрать строку дневника "Rare:None,Epic:Golden" в множество ключей
+function Elves.ParseDiary(diary: any): ({ [string]: boolean }, number)
+	local set: { [string]: boolean } = {}
+	local count = 0
+	if type(diary) == "string" and diary ~= "" then
+		for _, key in string.split(diary, ",") do
+			if key ~= "" and not set[key] then
+				set[key] = true
+				count += 1
+			end
+		end
+	end
+	return set, count
+end
+
 function Elves.ElfName(rarityName: string, mutationName: string): string
 	if mutationName == "None" then
 		return rarityName .. " Elf"

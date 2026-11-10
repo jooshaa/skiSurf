@@ -7,6 +7,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Config)
 local Elves = require(ReplicatedStorage.Elves)
 local Remotes = require(ReplicatedStorage.Remotes)
+local PlayerData = require(script.Parent.PlayerData)
 
 local S = Config.Settings
 
@@ -62,6 +63,35 @@ local function scheduleRefresh(player: Player)
 	end)
 end
 
+-- Дневник коллекции: новая клетка редкость x мутация, награда за каждые TierPercent процентов
+local function recordDiary(player: Player, rarityName: string, mutationName: string)
+	local key = Elves.DiaryKey(rarityName, mutationName)
+	local set, count = Elves.ParseDiary(player:GetAttribute("Diary"))
+	if not set[key] then
+		local diary = player:GetAttribute("Diary")
+		player:SetAttribute(
+			"Diary",
+			if type(diary) == "string" and diary ~= "" then diary .. "," .. key else key
+		)
+		count += 1
+	end
+	-- Награды выдаются и за клетки, открытые раньше (например, перенесённые из старого сохранения)
+	local percent = count / Elves.DiaryTotal() * 100
+	local earned = math.floor(percent / Config.Diary.TierPercent + 1e-6)
+	local claimed = player:GetAttribute("DiaryTiers") or 0
+	while claimed < earned do
+		claimed += 1
+		local reward = Config.Diary.TierRewardCoins * claimed
+		player:SetAttribute("DiaryTiers", claimed)
+		PlayerData.AddCoins(player, reward)
+		Remotes.Get("Notify"):FireClient(
+			player,
+			string.format("📖 %d%%  💰 +%d", claimed * Config.Diary.TierPercent, reward),
+			Color3.fromRGB(255, 220, 90)
+		)
+	end
+end
+
 -- Можно ли выдать ещё одного эльфа (есть место в сохранении)
 function ElfService.HasRoom(player: Player): boolean
 	local folder = player:FindFirstChild("Elves")
@@ -92,6 +122,7 @@ function ElfService.Grant(
 		return nil, "invalid"
 	end
 	elf.Parent = folder
+	recordDiary(player, rarity.name, mutation.name)
 
 	-- Редкие дропы объявляются всему серверу
 	if rarity.announce or mutation.announce then
@@ -102,8 +133,21 @@ function ElfService.Grant(
 end
 
 -- Эльф из подарка: редкость уже выбрана по таблице размера, мутация роллится здесь
+-- Мягкая защита: после MutationPity эльфов без мутации следующий гарантированно с мутацией
+-- Ролл мутации для игрока с учётом его счётчика защиты; счётчик обновляется
+function ElfService.RollMutationFor(player: Player): Config.Mutation
+	local pity = player:GetAttribute("Pity") or 0
+	local mutation = Elves.RollMutation(pity >= Config.Elves.MutationPity)
+	player:SetAttribute("Pity", if mutation.name == "None" then pity + 1 else 0)
+	return mutation
+end
+
 function ElfService.GrantRolled(player: Player, rarityName: string): StringValue?
-	local elf = ElfService.Grant(player, rarityName, nil)
+	-- Сначала место, потом ролл: иначе редкая мутация и счётчик защиты сгорят впустую
+	if player:GetAttribute("ProfileReady") ~= true or not ElfService.HasRoom(player) then
+		return nil
+	end
+	local elf = ElfService.Grant(player, rarityName, ElfService.RollMutationFor(player).name)
 	return elf
 end
 

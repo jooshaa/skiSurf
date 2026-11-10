@@ -12,6 +12,15 @@ local TUNIC = Color3.fromRGB(40, 140, 70)
 local SKIN = Color3.fromRGB(255, 214, 170)
 local BOOTS = Color3.fromRGB(70, 45, 30)
 
+-- Частицы мутаций (визуал, рисует клиент). Цвет берётся из Config.Mutations
+local MUTATION_FX: { [string]: { rate: number, speed: number, drift: number, size: number, glow: number } } =
+	{
+		Frosty = { rate = 8, speed = 1.5, drift = -2, size = 0.3, glow = 0.3 }, -- снежинки падают
+		Candy = { rate = 10, speed = 2.5, drift = 1, size = 0.35, glow = 0.2 }, -- конфетти
+		Aurora = { rate = 14, speed = 1, drift = 3, size = 0.6, glow = 1 }, -- сияние поднимается
+		Golden = { rate = 20, speed = 3, drift = 0, size = 0.4, glow = 1 }, -- золотые искры
+	}
+
 local function makePart(
 	name: string,
 	size: Vector3,
@@ -93,7 +102,7 @@ function ElfVisuals.CreateElf(rarityName: any, mutationName: any): Model?
 end
 
 -- Эффекты (вызываются на клиенте): свет редкости, искры для топ-редкостей
-function ElfVisuals.ApplyEffects(model: Model, rarityName: any)
+function ElfVisuals.ApplyEffects(model: Model, rarityName: any, mutationName: any)
 	local rarity = resolveRarity(rarityName)
 	local body = model:FindFirstChild("Body")
 	if not rarity or not body or body:FindFirstChild("RarityLight") then
@@ -119,6 +128,24 @@ function ElfVisuals.ApplyEffects(model: Model, rarityName: any)
 		emitter.LightEmission = 1
 		emitter.Parent = body
 	end
+
+	-- Мутация: свои частицы поверх редкости
+	local mutation = Elves.GetMutation(mutationName)
+	local fx = mutation and MUTATION_FX[mutation.name]
+	if mutation and fx then
+		local emitter = Instance.new("ParticleEmitter")
+		emitter.Name = "MutationFx"
+		emitter.Color = ColorSequence.new(mutation.color)
+		emitter.Size = NumberSequence.new(fx.size, 0)
+		emitter.Lifetime = NumberRange.new(1, 1.8)
+		emitter.Rate = fx.rate
+		emitter.Speed = NumberRange.new(fx.speed * 0.5, fx.speed)
+		emitter.Acceleration = Vector3.new(0, fx.drift, 0)
+		emitter.SpreadAngle = Vector2.new(180, 180)
+		emitter.LightEmission = fx.glow
+		emitter.Parent = body
+		light.Color = mutation.color
+	end
 end
 
 -- Табличка над эльфом: имя цветом редкости
@@ -130,9 +157,9 @@ function ElfVisuals.AddNameTag(model: Model, rarityName: any)
 	end
 	local gui = Instance.new("BillboardGui")
 	gui.Name = "NameTag"
-	gui.Size = UDim2.fromOffset(160, 30)
-	gui.StudsOffset = Vector3.new(0, 4.6, 0)
-	gui.MaxDistance = 60
+	gui.Size = UDim2.fromOffset(110, 20)
+	gui.StudsOffset = Vector3.new(0, 4.4, 0)
+	gui.MaxDistance = 40
 	gui.AlwaysOnTop = false
 	local label = Instance.new("TextLabel")
 	label.Name = "Label"
