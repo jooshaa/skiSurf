@@ -14,6 +14,8 @@ local NAMES = {
 	"SleighDepart", -- сани улетают с площади, рисует клиент
 	"RoundResult", -- ({gifts, coins, elves, quotaMet, delivered, target}) итоги отлёта
 	"DropGift", -- клиент -> сервер: отпустить подарок
+	"AdminAction", -- клиент -> сервер: (action, a, b) команда админ-панели, права проверяет сервер
+	"AdminResult", -- (ok, text) ответ админ-панели
 	"CallHelp", -- клиент -> сервер: позвать на помощь к общему подарку
 }
 
