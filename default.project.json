@@ -1,0 +1,40 @@
+{
+  "name": "deliver-a-gift",
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "$className": "ReplicatedStorage",
+      "$ignoreUnknownInstances": true,
+      "$path": "src/shared"
+    },
+    "ServerScriptService": {
+      "$className": "ServerScriptService",
+      "$ignoreUnknownInstances": true,
+      "$path": "src/server",
+      "ServerPackages": {
+        "$path": "ServerPackages"
+      }
+    },
+    "StarterPlayer": {
+      "$className": "StarterPlayer",
+      "StarterPlayerScripts": {
+        "$className": "StarterPlayerScripts",
+        "$ignoreUnknownInstances": true,
+        "$path": "src/client"
+      }
+    },
+    "StarterGui": {
+      "$className": "StarterGui",
+      "AnnounceGui": {
+        "$className": "ScreenGui",
+        "$ignoreUnknownInstances": true,
+        "$path": "src/gui/AnnounceGui",
+        "$properties": {
+          "ResetOnSpawn": false,
+          "IgnoreGuiInset": true,
+          "ZIndexBehavior": "Global"
+        }
+      }
+    }
+  }
+}
