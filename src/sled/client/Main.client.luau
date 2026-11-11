@@ -33,7 +33,7 @@ local modeTime = 0 -- секунд в текущем режиме
 local runTime = 0
 local bestTime: number? = nil
 local blink = 0
-local lean = 0
+local lean = 0 -- наклон в поворот от -1 до 1, сглаженный руль
 local autopilot = false -- клавиша B: едет бот, можно смотреть линию и камеру
 
 local fallFrame = CFrame.new()
@@ -98,6 +98,8 @@ local function place(s: number, speed: number)
 	camDirection = Vector3.new(tangent.X, 0, tangent.Z).Unit
 	airTime = 0
 	lastPosition = nil
+	velocity = Vector3.zero
+	camKick = 0
 	SledView.Cut()
 end
 
@@ -126,7 +128,7 @@ local function sledFrame(): CFrame
 	return surface
 		* CFrame.new(0, S.RideHeight, 0)
 		* CFrame.Angles(0, -(state.heading + (state.heading - state.slide) * S.DriftVisual), 0)
-		* CFrame.Angles(0, 0, -lean)
+		* CFrame.Angles(0, 0, -lean * S.Lean)
 end
 
 local function startFall()
@@ -229,7 +231,7 @@ local function updateCamera(dt: number, frame: CFrame)
 	local behind = Track.At(track, state.s - distance)
 	-- В повороте камеру выносит наружу: видно, как санки уходят под тебя
 	local side = Vector3.new(-camDirection.Z, 0, camDirection.X)
-	local eye = position - camDirection * distance - side * (lean / S.Lean * C.SideSway)
+	local eye = position - camDirection * distance - side * (lean * C.SideSway)
 	eye = Vector3.new(eye.X, math.max(position.Y + C.Height, behind.Y + C.MinClearance), eye.Z)
 	local focusGround = Track.At(track, state.s + C.FocusAhead)
 	local focus = position + camDirection * C.FocusAhead
@@ -239,7 +241,7 @@ local function updateCamera(dt: number, frame: CFrame)
 	camFov += (wantedFov - camFov) * (1 - math.exp(-C.FovRate * dt))
 	camera.FieldOfView = camFov
 	camKick *= math.exp(-C.LandKickDecay * dt)
-	local shake = C.ShakeAmount * math.clamp(state.v / C.ShakeSpeedRef, 0, 1) ^ 2
+	local shake = C.ShakeAmount * math.clamp(state.v / C.ShakeSpeedRef, 0, 1) ^ C.ShakeCurve
 	if state.airborne then
 		shake = 0 -- в полёте тишина: так приземление ощущается сильнее
 	end
@@ -247,7 +249,7 @@ local function updateCamera(dt: number, frame: CFrame)
 		* CFrame.Angles(
 			math.noise(clock * C.ShakeFreq, 0) * shake - camKick,
 			math.noise(0, clock * C.ShakeFreq) * shake,
-			-lean / S.Lean * C.Roll
+			-lean * C.Roll
 		)
 end
 
@@ -282,7 +284,7 @@ local function onFrame(frameTime: number)
 		updateFinish(dt)
 	end
 
-	lean += (steer * S.Lean - lean) * (1 - math.exp(-S.LeanRate * dt))
+	lean += (steer - lean) * (1 - math.exp(-S.LeanRate * dt))
 	local frame = if mode == "fall" then fallFrame else sledFrame()
 	SledView.SetPose(frame)
 	if lastPosition and dt > 0 then
@@ -298,7 +300,7 @@ local function onFrame(frameTime: number)
 	if riderRoot then
 		riderRoot.CFrame = frame
 			* CFrame.new(S.RiderOffset)
-			* CFrame.Angles(riderPitch, 0, -lean / S.Lean * S.RiderLean)
+			* CFrame.Angles(riderPitch, 0, -lean * S.RiderLean)
 	end
 	if riderHumanoid and not riderHumanoid.Sit then
 		riderHumanoid.Sit = true -- встал (например, после возрождения): сажаем обратно

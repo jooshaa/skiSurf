@@ -68,7 +68,13 @@ SledConfig.Presets = {
 	},
 	{
 		id = "Heavy",
-		values = { Grip = 4.5, TurnRate = 1.25, SlopeGravity = 80, Brake = 45, Assist = 0.3 },
+		values = {
+			Grip = 4.5,
+			TurnRate = 1.25,
+			SlopeGravity = 80,
+			Brake = 45,
+			Assist = 0.3,
+		},
 	},
 }
 
@@ -79,7 +85,7 @@ SledConfig.Tunable = {
 	{ key = "Brake", min = 15, max = 120 },
 	{ key = "TurnRate", min = 0.6, max = 3.5 },
 	{ key = "Grip", min = 1, max = 14 },
-	{ key = "SteerResponse", min = 2, max = 30 },
+	{ key = "SteerResponse", min = 5, max = 30 }, -- ниже 5 бот вылетает в шикане
 	{ key = "SlipDrag", min = 0, max = 1.5 },
 	{ key = "Assist", min = 0, max = 0.8 },
 	{ key = "AirGravity", min = 60, max = 220 },
@@ -165,6 +171,7 @@ SledConfig.Camera = {
 	ShakeAmount = 0.007, -- дрожь камеры на полной скорости, рад
 	ShakeFreq = 13,
 	ShakeSpeedRef = 150,
+	ShakeCurve = 2, -- степень: дрожь появляется только ближе к полной скорости
 	LandKick = 0.07, -- кивок камеры при приземлении, рад
 	LandKickDecay = 7,
 	FallFov = 60,
@@ -250,8 +257,8 @@ SledConfig.Assets = {
 SledConfig.Fx = {
 	SnowColor = Color3.fromRGB(205, 220, 244), -- чуть голубее снега, иначе белое на белом не видно
 	PuffStart = 0.35, -- начальный размер облачка в долях конечного
-	PuffOpacity = 0,
-	Inherit = 0.6, -- какую долю скорости санок получает снежная пыль: без этого она сразу остаётся позади -- прозрачность в начале (0 = плотное)
+	PuffTransparency = 0, -- прозрачность облачка в начале (0 = плотное)
+	Inherit = 0.6, -- доля скорости санок, которую получает снежная пыль (иначе она сразу остаётся позади)
 	PuffGravity = 18,
 	PuffGlow = 0,
 	Spread = 22,
@@ -282,7 +289,7 @@ SledConfig.Fx = {
 	TrailHeight = 0.06,
 	TrailLife = 1.4,
 	TrailColor = Color3.fromRGB(160, 180, 212),
-	TrailOpacity = 0.3,
+	TrailTransparency = 0.3,
 	BlinkTransparency = 0.6,
 }
 
@@ -295,7 +302,8 @@ SledConfig.Snowfall = {
 	Speed = 9,
 	Spread = 20,
 	Size = 0.5,
-	Opacity = 0.2,
+	Transparency = 0.2, -- прозрачность снежинки (0 = плотная)
+	TouchRateShare = 0.5, -- на телефоне снежинок меньше: доля от Rate
 	Glow = 0.3,
 	Wind = Vector3.new(2, 0, 1),
 	LeadTime = 0.3, -- объём снегопада сдвинут вперёд на столько секунд пути; камера остаётся внутри

@@ -3,7 +3,9 @@
 -- грузится или если не загрузилась, простая из блоков), снег из-под полозьев, шлейф в повороте,
 -- следы на снегу, облако при приземлении и снегопад вокруг игрока. Только картинка.
 local AssetService = game:GetService("AssetService")
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 
 local SledConfig = require(ReplicatedStorage.SledConfig)
@@ -103,31 +105,40 @@ local function loadSled()
 		part:Destroy()
 	end
 	table.clear(bodyParts)
+	mesh.Transparency = if shownHidden then F.BlinkTransparency else 0
 	mesh.Parent = sled
 	table.insert(bodyParts, mesh)
 end
 
 local helmetTemplate: MeshPart? = nil
-local helmetLoaded = false
+local helmetLoading = false
+local HELMET_NAME = "SledHelmet"
+
+-- Персонаж ещё тот же и жив? После каждого ожидания он мог смениться.
+local function isCurrent(character: Model): boolean
+	return character.Parent ~= nil and Players.LocalPlayer.Character == character
+end
 
 -- Шлем с очками на голову персонажа. Чужого игрока не касается: это только свой райдер.
 function SledView.AttachHelmet(character: Model)
-	if not helmetLoaded then
-		helmetLoaded = true
+	while helmetLoading do
+		task.wait() -- модель уже грузит другой вызов (персонаж возродился): ждём её
+	end
+	if not helmetTemplate then
+		helmetLoading = true
 		local asset = SledConfig.Assets.Helmet
-		helmetTemplate = loadAsset("Helmet", asset.mesh, asset.texture)
-		if helmetTemplate then
-			helmetTemplate.Size *= asset.width / math.max(
-				helmetTemplate.Size.X,
-				helmetTemplate.Size.Z
-			)
+		local loaded = loadAsset(HELMET_NAME, asset.mesh, asset.texture)
+		if loaded then
+			loaded.Size *= asset.width / math.max(loaded.Size.X, loaded.Size.Z)
 		end
+		helmetTemplate = loaded -- nil при неудаче: следующий персонаж попробует снова
+		helmetLoading = false
 	end
 	local head = character:WaitForChild("Head", SledConfig.Run.CharacterTimeout)
-	if not helmetTemplate or not head or not head:IsA("BasePart") then
+	if not helmetTemplate or not head or not head:IsA("BasePart") or not isCurrent(character) then
 		return
 	end
-	if character:FindFirstChild("Helmet") then
+	if character:FindFirstChild(HELMET_NAME) then
 		return
 	end
 	local asset = SledConfig.Assets.Helmet
@@ -153,16 +164,19 @@ function SledView.AttachHelmet(character: Model)
 			end
 			local kind = item.AccessoryType
 			if kind == Enum.AccessoryType.Hair or kind == Enum.AccessoryType.Hat then
-				local handle = item:FindFirstChild("Handle")
+				-- Аксессуар может появиться раньше своей детали: ждём её
+				local handle = item:WaitForChild("Handle", SledConfig.Run.CharacterTimeout)
 				if handle and handle:IsA("BasePart") then
 					handle.Transparency = 1 -- только у себя на экране, аватар не меняется
 				end
 			end
 		end
 		for _, item in character:GetChildren() do
-			hide(item)
+			task.spawn(hide, item)
 		end
-		character.ChildAdded:Connect(hide) -- аксессуары могут догрузиться позже
+		character.ChildAdded:Connect(function(item)
+			task.spawn(hide, item) -- аксессуары могут догрузиться позже
+		end)
 	end
 end
 
@@ -180,7 +194,7 @@ local function emitter(
 		NumberSequenceKeypoint.new(1, size),
 	})
 	item.Transparency = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, F.PuffOpacity),
+		NumberSequenceKeypoint.new(0, F.PuffTransparency),
 		NumberSequenceKeypoint.new(1, 1),
 	})
 	item.Lifetime = NumberRange.new(lifetime * 0.6, lifetime)
@@ -224,7 +238,7 @@ local function buildEffects()
 		trail.Lifetime = F.TrailLife
 		trail.Color = ColorSequence.new(F.TrailColor)
 		trail.Transparency = NumberSequence.new({
-			NumberSequenceKeypoint.new(0, F.TrailOpacity),
+			NumberSequenceKeypoint.new(0, F.TrailTransparency),
 			NumberSequenceKeypoint.new(1, 1),
 		})
 		trail.LightInfluence = 1
@@ -255,7 +269,7 @@ local function buildSnowfall()
 
 	local snow = Instance.new("ParticleEmitter")
 	snow.Name = "Snow"
-	snow.Rate = W.Rate
+	snow.Rate = if UserInputService.TouchEnabled then W.Rate * W.TouchRateShare else W.Rate
 	snow.Lifetime = NumberRange.new(W.Lifetime * 0.7, W.Lifetime)
 	snow.Speed = NumberRange.new(W.Speed * 0.6, W.Speed)
 	snow.EmissionDirection = Enum.NormalId.Bottom
@@ -263,8 +277,8 @@ local function buildSnowfall()
 	snow.Size = NumberSequence.new(W.Size)
 	snow.Transparency = NumberSequence.new({
 		NumberSequenceKeypoint.new(0, 1),
-		NumberSequenceKeypoint.new(0.15, W.Opacity),
-		NumberSequenceKeypoint.new(0.8, W.Opacity),
+		NumberSequenceKeypoint.new(0.15, W.Transparency),
+		NumberSequenceKeypoint.new(0.8, W.Transparency),
 		NumberSequenceKeypoint.new(1, 1),
 	})
 	snow.Color = ColorSequence.new(Color3.new(1, 1, 1))
