@@ -288,7 +288,7 @@ SledConfig.Scenery = {
 	-- Снежный склон от края трассы
 	ShoulderWidth = 46, -- на сколько студов склон уходит в сторону
 	ShoulderMin = 6, -- уже этого склон не строим (витки шпильки слишком близко)
-	ShoulderSlope = math.rad(22), -- наклон склона вниз
+	ShoulderSlope = math.rad(30), -- наклон склона вниз (у сетки: после перегиба)
 	ShoulderThickness = 6,
 	ShoulderDrop = 0.15, -- склон чуть ниже полотна, чтобы поверхности не мерцали
 	Overlap = 0.6, -- запас длины блоков, чтобы не было щелей
@@ -328,13 +328,13 @@ SledConfig.Scenery = {
 	TreeMinShoulder = 16, -- на склоне уже этого ничего не растёт
 	TreeShadows = true,
 	RockShadows = false,
-	TreeChance = 0.24, -- шанс ели на один блок склона
+	TreeChance = 0.24, -- шанс ели на 8 студов склона
 	TreeEdgeGap = 7, -- не ближе этого к краю трассы
 	TreeOuterGap = 4,
 	TreeScaleMin = 0.6,
 	TreeScaleMax = 1.35,
 	TreeSink = 1.5, -- ствол утоплен в снег
-	RockChance = 0.07,
+	RockChance = 0.07, -- на 8 студов склона
 	RockScaleMin = 0.5,
 	RockScaleMax = 1.4,
 	RockSink = 1.5,
@@ -376,6 +376,27 @@ SledConfig.Scenery = {
 	CloudCover = 0.58,
 	CloudDensity = 0.45,
 	CloudColor = Color3.fromRGB(255, 255, 255),
+}
+
+-- Гладкая поверхность горы (TrackMesh)
+SledConfig.Mesh = {
+	RingStep = 3, -- расстояние между поперечными сечениями, студов
+	ChunkRings = 70, -- сечений в одном куске сетки
+	Columns = 4, -- полос поперёк полотна
+	StripeLength = 18, -- длина полосы оттенка на полотне: по полосам читается скорость
+	EdgeInnerLift = 0.06, -- внутренняя кромка цветного края чуть выше снега
+	InnerGap = 1, -- внутри шпильки склоны сходятся к центру поворота, не доходя до него на столько
+	ReachSmooth = 3, -- сглаживание ширины склона, сечений в каждую сторону
+	MidShare = 0.45, -- где у склона перегиб, доля ширины
+	NearSlope = math.rad(9), -- наклон склона до перегиба (после: Scenery.ShoulderSlope)
+	ShoulderNoise = 0.16, -- неровность внешней кромки склона, доля ширины
+	ShoulderBump = 1.6, -- бугры на перегибе, студов
+	SkirtMidShare = 0.35, -- где у скалы перегиб, доля длины
+	SkirtJitter = 10, -- изломы скалы, студов
+	NoiseScale = 0.021, -- частота неровностей вдоль трассы
+	NoiseLane = 7.3, -- сдвиг шума между полосами
+	ShadeStretch = 2.5, -- оттенки меняются чаще, чем форма
+	ShadeSteps = 4, -- ступеней оттенка между двумя цветами
 }
 
 -- Снег из-под санок

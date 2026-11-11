@@ -11,10 +11,19 @@ local Track = require(ReplicatedStorage.Track)
 
 local V = SledConfig.Visual
 local S = SledConfig.Scenery
+local M = SledConfig.Mesh
 
 local Scenery = {}
 
-export type Shoulder = { frame: CFrame, width: number, side: number }
+-- Склон у края трассы: ломаная от края через перегиб к внешней кромке.
+-- weight: доля от обычного шанса посадки (сечения сетки идут чаще блоков)
+export type Shoulder = {
+	edge: Vector3,
+	mid: Vector3,
+	outer: Vector3,
+	width: number,
+	weight: number,
+}
 
 local function block(
 	parent: Instance,
@@ -95,9 +104,18 @@ local function loadMesh(mesh: string, texture: string): MeshPart?
 	return result
 end
 
+-- Высота дна долины: до неё тянется скала под самой трассой
+function Scenery.FloorY(track: Track.Data): number
+	local lowest = math.huge
+	for i = 1, track.count do
+		lowest = math.min(lowest, track.pos[i].Y)
+	end
+	return lowest - S.FloorDepth
+end
+
 -- Сколько свободного места сбоку от трассы до другого её витка (в шпильках витки близко).
 -- Соседом считается точка трассы, которая лежит сбоку, а не впереди или позади по ходу.
-local function clearance(
+function Scenery.Clearance(
 	track: Track.Data,
 	s: number,
 	edge: Vector3,
@@ -120,7 +138,9 @@ local function clearance(
 end
 
 -- Снежный склон от края трассы вниз и скала под ним
-local function buildShoulders(parent: Instance, track: Track.Data, floorY: number): { Shoulder }
+-- Запасной вариант из блоков (основной строит TrackMesh)
+function Scenery.ShoulderParts(parent: Instance, track: Track.Data): { Shoulder }
+	local floorY = Scenery.FloorY(track)
 	local shoulders: { Shoulder } = {}
 	local span = V.SegmentSamples * track.step
 	local index = 0
@@ -138,7 +158,7 @@ local function buildShoulders(parent: Instance, track: Track.Data, floorY: numbe
 
 		for _, side in { -1, 1 } do
 			local outward = flatRight * side
-			local free = clearance(
+			local free = Scenery.Clearance(
 				track,
 				s + span / 2,
 				mid + right * (side * width / 2),
@@ -171,7 +191,15 @@ local function buildShoulders(parent: Instance, track: Track.Data, floorY: numbe
 					if index % 2 == 0 then S.SnowBankA else S.SnowBankB,
 					Enum.Material.Snow
 				)
-				table.insert(shoulders, { frame = slope, width = run, side = side })
+				local edge = slope.Position
+				local outer = (slope * CFrame.new(side * run, 0, 0)).Position
+				table.insert(shoulders, {
+					edge = edge,
+					mid = edge:Lerp(outer, M.MidShare),
+					outer = outer,
+					width = run,
+					weight = 1,
+				})
 
 				-- Скала под склоном: только там, где до соседнего витка есть место
 				-- (и не внутри поворота: там скалы соседних блоков торчали бы друг из друга)
@@ -269,11 +297,17 @@ local function buildTrees(parent: Instance, random: Random, shoulders: { Shoulde
 			-- Точка на склоне: от края трассы наружу
 			local function spot(): CFrame
 				local out = random:NextNumber(S.TreeEdgeGap, shoulder.width - S.TreeOuterGap)
-				local point = (shoulder.frame * CFrame.new(shoulder.side * out, 0, 0)).Position
+				local share = out / shoulder.width
+				local point = if share < M.MidShare
+					then shoulder.edge:Lerp(shoulder.mid, share / M.MidShare)
+					else shoulder.mid:Lerp(
+						shoulder.outer,
+						(share - M.MidShare) / (1 - M.MidShare)
+					)
 				return CFrame.new(point) * CFrame.Angles(0, random:NextNumber(0, math.pi * 2), 0)
 			end
 
-			if random:NextNumber() < S.TreeChance then
+			if random:NextNumber() < S.TreeChance * shoulder.weight then
 				local scale = random:NextNumber(S.TreeScaleMin, S.TreeScaleMax)
 				local at = spot()
 				if pine then
@@ -304,7 +338,7 @@ local function buildTrees(parent: Instance, random: Random, shoulders: { Shoulde
 				end
 			end
 
-			if random:NextNumber() < S.RockChance then
+			if random:NextNumber() < S.RockChance * shoulder.weight then
 				local scale = random:NextNumber(S.RockScaleMin, S.RockScaleMax)
 				local at = spot()
 				if rock then
@@ -412,28 +446,12 @@ local function applyLighting()
 	clouds.Parent = terrain
 end
 
--- Высота дна долины: до неё тянется скала под самой трассой
-function Scenery.FloorY(track: Track.Data): number
-	local lowest = math.huge
-	for i = 1, track.count do
-		lowest = math.min(lowest, track.pos[i].Y)
-	end
-	return lowest - S.FloorDepth
-end
-
--- Всё, что строится сразу, без ожидания сети. Возвращает склоны для Scenery.Plant.
-function Scenery.Build(
-	parent: Instance,
-	track: Track.Data,
-	colorAt: (number) -> Color3
-): { Shoulder }
-	local floorY = Scenery.FloorY(track)
-	local shoulders = buildShoulders(parent, track, floorY)
-	local centre, radius = buildFloor(parent, track, floorY)
+-- Всё вокруг, что строится сразу, без ожидания сети
+function Scenery.Build(parent: Instance, track: Track.Data, colorAt: (number) -> Color3)
+	local centre, radius = buildFloor(parent, track, Scenery.FloorY(track))
 	buildPeaks(parent, Random.new(S.Seed), centre, radius)
 	buildFlags(parent, track, colorAt)
 	applyLighting()
-	return shoulders
 end
 
 -- Лес и валуны. Ждёт загрузки моделей из сети, поэтому вызывается после того, как гора и

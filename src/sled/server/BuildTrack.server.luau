@@ -9,6 +9,7 @@ local Workspace = game:GetService("Workspace")
 local SledConfig = require(ReplicatedStorage.SledConfig)
 local Track = require(ReplicatedStorage.Track)
 local Scenery = require(ServerScriptService.Scenery)
+local TrackMesh = require(ServerScriptService.TrackMesh)
 
 local V = SledConfig.Visual
 
@@ -49,7 +50,8 @@ local function edgeColor(s: number): Color3
 	return V.EdgeSafe
 end
 
-local function buildSurface(parent: Instance)
+-- Полотно с краями из блоков (запасной вариант) и скала под трассой: каждое по отдельности
+local function buildSurface(parent: Instance, surface: boolean, cliffs: boolean)
 	local span = V.SegmentSamples * track.step
 	local index = 0
 	for s = 0, track.length - span, span do
@@ -63,44 +65,48 @@ local function buildSurface(parent: Instance)
 		-- На повороте прямые блоки расходятся по внешнему краю: удлиняем, чтобы не было щелей
 		local length = (b - a).Magnitude * (1 + math.abs(kappa) * width / 2) + 0.2
 
-		local stripe = math.floor((index - 1) / V.StripeEvery) % 2 == 0
-		block(
-			parent,
-			Vector3.new(width, V.TrackThickness, length),
-			frame * CFrame.new(0, -V.TrackThickness / 2, 0),
-			if stripe then V.SnowA else V.SnowB,
-			Enum.Material.Snow
-		)
-
-		local color = edgeColor(s + span / 2)
-		for _, side in { -1, 1 } do
+		if surface then
+			local stripe = math.floor((index - 1) / V.StripeEvery) % 2 == 0
 			block(
 				parent,
-				Vector3.new(V.EdgeWidth, V.EdgeHeight, length),
-				frame * CFrame.new(side * (width - V.EdgeWidth) / 2, V.EdgeHeight / 2, 0),
-				color,
-				Enum.Material.SmoothPlastic
+				Vector3.new(width, V.TrackThickness, length),
+				frame * CFrame.new(0, -V.TrackThickness / 2, 0),
+				if stripe then V.SnowA else V.SnowB,
+				Enum.Material.Snow
 			)
+
+			local color = edgeColor(s + span / 2)
+			for _, side in { -1, 1 } do
+				block(
+					parent,
+					Vector3.new(V.EdgeWidth, V.EdgeHeight, length),
+					frame * CFrame.new(side * (width - V.EdgeWidth) / 2, V.EdgeHeight / 2, 0),
+					color,
+					Enum.Material.SmoothPlastic
+				)
+			end
 		end
 
-		-- Обрыв под полотном: вертикальная скала, чтобы трасса читалась как гребень горы
-		local flatForward = Vector3.new(forward.X, 0, forward.Z).Unit
-		local flatRight = Vector3.new(-flatForward.Z, 0, flatForward.X)
-		-- На наклонённом повороте внутренний край ниже оси: скала не должна вылезать над ним
-		local top = mid.Y - V.TrackThickness - V.CliffDrop - math.abs(right.Y) * width / 2
-		local height = math.clamp(top - floorY, V.CliffHeight, V.CliffMaxHeight)
-		block(
-			parent,
-			Vector3.new(width * V.CliffInset, height, length),
-			CFrame.fromMatrix(
-				Vector3.new(mid.X, top - height / 2, mid.Z),
-				flatRight,
-				Vector3.yAxis,
-				-flatForward
-			),
-			V.Cliff,
-			Enum.Material.Slate
-		)
+		if cliffs then
+			-- Обрыв под полотном: вертикальная скала, чтобы трасса читалась как гребень горы
+			local flatForward = Vector3.new(forward.X, 0, forward.Z).Unit
+			local flatRight = Vector3.new(-flatForward.Z, 0, flatForward.X)
+			-- На наклонённом повороте внутренний край ниже оси: скала не должна вылезать над ним
+			local top = mid.Y - V.TrackThickness - V.CliffDrop - math.abs(right.Y) * width / 2
+			local height = math.clamp(top - floorY, V.CliffHeight, V.CliffMaxHeight)
+			block(
+				parent,
+				Vector3.new(width * V.CliffInset, height, length),
+				CFrame.fromMatrix(
+					Vector3.new(mid.X, top - height / 2, mid.Z),
+					flatRight,
+					Vector3.yAxis,
+					-flatForward
+				),
+				V.Cliff,
+				Enum.Material.Slate
+			)
+		end
 	end
 end
 
@@ -147,14 +153,30 @@ model.Name = "Mountain"
 -- Санки едут только на клиенте, сервер видит игрока на старте: без этого при StreamingEnabled
 -- дальняя часть трассы не подгрузилась бы
 model.ModelStreamingMode = Enum.ModelStreamingMode.Persistent
-buildSurface(model)
+buildSurface(model, false, true)
 buildGate(model, track.startS + V.StartGateOffset, V.Checkpoint, 1)
 for _, checkpoint in track.checkpoints do
 	buildGate(model, checkpoint, V.Checkpoint, 1)
 end
 buildGate(model, track.finishS, Color3.new(1, 1, 1), V.FinishTiles)
-local shoulders = Scenery.Build(model, track, edgeColor)
+Scenery.Build(model, track, edgeColor)
 buildSpawn(model)
 model.Parent = Workspace
--- Лес грузит модели из сети: сажаем его, когда гора и точка появления уже на месте
-task.spawn(Scenery.Plant, model, shoulders)
+
+-- Гладкая поверхность и лес ждут движок и сеть: строим их, когда гора и точка появления уже на
+-- месте. Санки едут по расчёту, поэтому заезд можно начать и до этого.
+task.spawn(function()
+	local ok, shoulders = pcall(TrackMesh.Build, model, track, edgeColor)
+	if not ok then
+		warn(
+			"BuildTrack: гладкая поверхность не построилась, собираю из блоков",
+			shoulders
+		)
+	end
+	if ok and shoulders then
+		Scenery.Plant(model, shoulders)
+	else
+		buildSurface(model, true, false)
+		Scenery.Plant(model, Scenery.ShoulderParts(model, track))
+	end
+end)
