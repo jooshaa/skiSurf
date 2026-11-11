@@ -490,14 +490,21 @@ local function randomPosition(only: Config.District?): Vector3
 				end
 			end
 		end
-		local position = district.center
+		local flatPosition = district.center
 			+ Vector3.new(
 				(rng:NextNumber() - 0.5) * district.size.X,
 				0,
 				(rng:NextNumber() - 0.5) * district.size.Y
 			)
-		local free = (position - Config.World.SleighPosition).Magnitude > G.DeliverDistance
-			and (position - Config.World.SpawnPosition).Magnitude > G.SpawnClearance
+		-- Точка на поверхности рельефа, иначе луч к земле начнётся под холмом
+		local position = Vector3.new(
+			flatPosition.X,
+			World.GroundHeight(flatPosition.X, flatPosition.Z),
+			flatPosition.Z
+		)
+		local free = (flatPosition - Config.World.SleighPosition).Magnitude > G.DeliverDistance
+			and (flatPosition - Config.World.SpawnPosition).Magnitude > G.SpawnClearance
+			and not World.IsBlocked(position, Config.Map.GiftClearance)
 		if free then
 			for _, gift in gifts do
 				if (gift.root.Position - position).Magnitude < G.MapSpacing then
@@ -511,7 +518,8 @@ local function randomPosition(only: Config.District?): Vector3
 		end
 	end
 	local fallback = only or Config.Districts[1]
-	return fallback.center + Vector3.new(fallback.size.X / 4, 0, fallback.size.Y / 4)
+	local x, z = fallback.center.X + fallback.size.X / 4, fallback.center.Z + fallback.size.Y / 4
+	return Vector3.new(x, World.GroundHeight(x, z), z)
 end
 
 local function countMapGifts(): number

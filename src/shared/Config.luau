@@ -171,10 +171,10 @@ Config.Round = {
 	QuotaPerExtraPlayer = 8, -- [ПРЕДПОЛОЖЕНИЕ] прибавка к норме за каждого игрока сверх первого
 	QuotaBonus = 0.5, -- +50% монет при выполненной норме
 	FlybyDuration = 8, -- сек полёта Санты над картой
-	FlybyHeight = 70, -- высота полёта (студов)
+	FlybyHeight = 140, -- высота полёта (студов)
 	FlybyArcHeight = 25, -- подъём дуги в середине пути
-	FlybyFrom = Vector3.new(-280, 70, 110), -- путь пролёта: над площадью к Снежному парку
-	FlybyTo = Vector3.new(280, 70, -340),
+	FlybyFrom = Vector3.new(-640, 140, 330), -- путь пролёта: из-за гор над деревней к Снежному парку
+	FlybyTo = Vector3.new(640, 140, -640),
 	ExtraFlybyCooldown = 300, -- сек между дополнительными пролётами (для новичков)
 	DropSmall = 12, -- маленьких подарков за пролёт
 	DropMedium = 2,
@@ -274,7 +274,7 @@ Config.Districts = {
 		id = "Plaza",
 		name = "Площадь",
 		center = Vector3.new(0, 0, 0),
-		size = Vector2.new(120, 120),
+		size = Vector2.new(280, 280), -- площадь, мастерские и ближние дома деревни
 		requiredSpeedLevel = 1,
 		ice = false,
 		mapGiftWeight = 70,
@@ -282,8 +282,8 @@ Config.Districts = {
 	{
 		id = "SnowPark",
 		name = "Снежный парк",
-		center = Vector3.new(0, 0, -230),
-		size = Vector2.new(160, 140),
+		center = Vector3.new(0, 0, -400),
+		size = Vector2.new(260, 200), -- замёрзшее озеро
 		requiredSpeedLevel = 2,
 		ice = true,
 		mapGiftWeight = 30,
@@ -303,7 +303,7 @@ Config.Ice = {
 
 -- Карта (строится кодом на сервере)
 Config.World = {
-	GroundSize = 800,
+	GroundSize = 2048, -- запасная плита под рельефом, если в месте нет Baseplate
 	SleighPosition = Vector3.new(0, 0, -26),
 	SpawnPosition = Vector3.new(0, 0, 0),
 	PlazaRadius = 70,
@@ -314,6 +314,125 @@ Config.World = {
 	DeliverZoneSize = 20, -- сторона зоны касания вокруг саней
 	GridStep = 5, -- шаг сетки эльфов
 	GridCols = 5, -- колонок в сетке
+	TreePosition = Vector3.new(0, 0, 38), -- главная ёлка на площади, за спиной у спавна
+	TreeHeight = 50,
+}
+
+-- Карта: рельеф, деревня, лес. Всё строится кодом на сервере при старте.
+Config.Map = {
+	Seed = 2026, -- зерно: карта одинаковая на всех серверах
+
+	-- Границы игровой зоны (студов). За ними горы и невидимая стена.
+	MinX = -400,
+	MaxX = 400,
+	MinZ = -620,
+	MaxZ = 340,
+	Outer = 200, -- ширина пояса гор за границей
+	WallHeight = 500,
+	WallThickness = 8,
+
+	-- Рельеф
+	FlatRadius = 125, -- площадь и мастерские стоят на ровном
+	FlatBlend = 150, -- на таком расстоянии ровное место переходит в холмы
+	LakeShore = 14, -- ровный берег вокруг озера
+	LakeBlend = 80,
+	HillScale = 95, -- ширина холмов
+	HillHeight = 18, -- высота холмов
+	DetailScale = 32, -- мелкие сугробы
+	DetailHeight = 4,
+	MountainStart = 50, -- за сколько студов до границы начинается подъём
+	MountainWidth = 230,
+	MountainHeight = 150,
+	MountainScale = 70,
+	MountainPower = 1.4,
+	MountainRidgeMin = 0.65, -- разброс высоты гребня
+	MountainRidgeMax = 1.35,
+	RockSlope = 7.5, -- перепад высоты на ячейку, с которого склон каменный
+	RockMinHeight = 25,
+	GlacierHeight = 120, -- выше этого вершины ледяные
+	ChunkCells = 32, -- ячеек Terrain в одном куске записи
+	SafetyPlateDrop = 6, -- на сколько страховочная плита утоплена под снег
+
+	-- Тропинки
+	PathWidth = 12,
+	PathLength = 255, -- длина троп на запад, восток и юг
+	NorthPathLength = 300, -- северная тропа до ворот Снежного парка
+	RingRadius = 140, -- круговая тропа за мастерскими
+
+	-- Деревня: кольца домов вокруг площади, лицом к центру
+	HouseRings = {
+		{ radius = 172, count = 12, offset = 0.5 },
+		{ radius = 226, count = 16, offset = 0.5 },
+	},
+	HouseWidthMin = 22,
+	HouseWidthMax = 30,
+	HouseDepthMin = 18,
+	HouseDepthMax = 22,
+	HouseHeightMin = 11,
+	HouseHeightMax = 14,
+	StallRadius = 58, -- ярмарочные прилавки на площади
+	StallCount = 4,
+	BenchRadius = 64,
+	BenchCount = 8,
+	PlazaLampRadius = 74,
+	PlazaLampSpread = 12, -- градусов: пара фонарей по бокам каждой тропы у площади
+	PathLampStep = 44, -- шаг фонарей вдоль троп
+	PathLampOffset = 10, -- на сколько фонарь отстоит от середины тропы
+	LakeLampInset = 10, -- фонари и скамейки отстоят от кромки льда
+	GateWidth = 24,
+	Snowmen = 14,
+	SnowmanRadiusMin = 130,
+	SnowmanRadiusMax = 250,
+
+	-- Лес
+	Pines = 240,
+	PineAttempts = 4000,
+	PineScaleMin = 0.9,
+	PineScaleMax = 1.9,
+	PineSpacing = 9, -- ели не ближе этого друг к другу и к постройкам
+	PineVillageChance = 0.3, -- в деревне ели реже, чем в лесу
+	VillageRadius = 260,
+	ForestOuter = 90, -- ели заходят на предгорья за границей
+	PineMaxHeight = 80, -- выше на склонах ели не растут
+	Rocks = 36,
+	RockSizeMin = 4,
+	RockSizeMax = 10,
+	GiftClearance = 3, -- запас вокруг построек, где подарки не появляются
+	-- Радиус круга, который постройка занимает на земле (для подарков и елей)
+	Footprint = {
+		WorkshopFactor = 0.75, -- доля ширины мастерской
+		TreeFactor = 0.35, -- доля высоты главной ёлки
+		HouseFactor = 0.62, -- доля большей стороны дома
+		PineFactor = 1.5, -- умножается на масштаб ели
+		Sleigh = 12,
+		Stall = 7,
+		Bench = 4,
+		Lamp = 2,
+		Snowman = 3,
+		SnowmanSpacing = 6, -- снеговики не ближе этого к постройкам
+	},
+	HouseColors = 7, -- сколько цветов стен в палитре домиков
+
+	-- Освещение: зимние сумерки, чтобы горели окна и гирлянды
+	Lighting = {
+		ClockTime = 16.6,
+		GeographicLatitude = 58,
+		Brightness = 2,
+		Ambient = Color3.fromRGB(120, 132, 168),
+		OutdoorAmbient = Color3.fromRGB(132, 146, 184),
+		FogDensity = 0.12, -- плотность дымки (Atmosphere.Density)
+		FogColor = Color3.fromRGB(196, 208, 232),
+	},
+
+	-- Снегопад (эффект на клиенте)
+	Snowfall = {
+		Rate = 140, -- снежинок в секунду
+		Height = 40, -- на какой высоте над камерой рождаются
+		Area = 110, -- сторона квадрата вокруг камеры
+		Speed = 9,
+		Lifetime = 7,
+		Size = 0.35,
+	},
 }
 
 -- Дневник коллекции

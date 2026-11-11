@@ -93,7 +93,13 @@ end
 
 -- Точка для дополнительного подарка: на земле и не внутри мастерской
 local function isOpenGround(position: Vector3): boolean
-	if not Gifts.HasGround(position) then
+	local clear = Config.Map.GiftClearance
+	-- Рельеф продолжается за стеной, поэтому край карты проверяем отдельно
+	if
+		not Gifts.HasGround(position)
+		or World.IsBlocked(position, clear)
+		or not World.InBounds(position, Config.Map.WallThickness / 2 + clear)
+	then
 		return false
 	end
 	local clearance = Config.World.WorkshopSize.X * F.NewbieGiftWorkshopClearance
@@ -218,8 +224,10 @@ function Tutorial.start()
 							F.NewbieGiftRadius * F.NewbieGiftInnerRadius,
 							F.NewbieGiftRadius
 						)
-						local position = root.Position
-							+ Vector3.new(math.cos(angle) * distance, 0, math.sin(angle) * distance)
+						local x = root.Position.X + math.cos(angle) * distance
+						local z = root.Position.Z + math.sin(angle) * distance
+						-- На поверхности рельефа: рядом с новичком может быть склон
+						local position = Vector3.new(x, World.GroundHeight(x, z), z)
 						if isOpenGround(position) then
 							Gifts.SpawnSmallAt(position, nil)
 						end
