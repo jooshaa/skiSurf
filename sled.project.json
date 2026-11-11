@@ -1,0 +1,21 @@
+{
+  "name": "race-down-a-mountain-prototype",
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "$className": "ReplicatedStorage",
+      "$path": "src/sled/shared"
+    },
+    "ServerScriptService": {
+      "$className": "ServerScriptService",
+      "$path": "src/sled/server"
+    },
+    "StarterPlayer": {
+      "$className": "StarterPlayer",
+      "StarterPlayerScripts": {
+        "$className": "StarterPlayerScripts",
+        "$path": "src/sled/client"
+      }
+    }
+  }
+}
