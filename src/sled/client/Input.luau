@@ -91,7 +91,7 @@ UserInputService.InputBegan:Connect(function(input, processed)
 	end
 end)
 
-UserInputService.InputChanged:Connect(function(input)
+UserInputService.InputChanged:Connect(function(input: InputObject)
 	if input.UserInputType == Enum.UserInputType.Touch then
 		if input == steerTouch then
 			moveSteer(input.Position.X)
@@ -112,7 +112,7 @@ UserInputService.InputChanged:Connect(function(input)
 	end
 end)
 
-UserInputService.InputEnded:Connect(function(input)
+UserInputService.InputEnded:Connect(function(input: InputObject)
 	if input.UserInputType == Enum.UserInputType.Touch then
 		if input == steerTouch then
 			steerTouch = nil
@@ -198,6 +198,11 @@ function Input.TakeCamera(): (number, number, number)
 	local x, y, zoom = cameraX, cameraY, cameraZoom
 	cameraX, cameraY, cameraZoom = 0, 0, 0
 	return x, y, zoom
+end
+
+-- Игрок сейчас держит камеру пальцем или правой кнопкой мыши
+function Input.CameraHeld(): boolean
+	return mouseCamera or cameraTouch ~= nil
 end
 
 -- Руль от -1 (влево) до 1 (вправо)

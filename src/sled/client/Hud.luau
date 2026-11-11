@@ -265,7 +265,7 @@ function Hud.Tuning(
 		update()
 	end
 
-	UserInputService.InputChanged:Connect(function(input)
+	UserInputService.InputChanged:Connect(function(input: InputObject)
 		if
 			dragging
 			and (input.UserInputType == Enum.UserInputType.MouseMovement or input == dragInput)
@@ -273,7 +273,7 @@ function Hud.Tuning(
 			dragging(input.Position.X)
 		end
 	end)
-	UserInputService.InputEnded:Connect(function(input)
+	UserInputService.InputEnded:Connect(function(input: InputObject)
 		if input.UserInputType == Enum.UserInputType.MouseButton1 or input == dragInput then
 			dragging = nil
 			dragInput = nil

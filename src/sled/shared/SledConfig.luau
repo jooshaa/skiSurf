@@ -76,7 +76,7 @@ SledConfig.Presets = {
 			Assist = 0.3,
 		},
 	},
-}
+} :: { { id: string, values: { [string]: number } } }
 
 -- Какие числа можно крутить ползунками на лету: имя поля, минимум, максимум
 SledConfig.Tunable = {
@@ -181,6 +181,8 @@ SledConfig.Camera = {
 	OrbitPitchMax = 1.2, -- и поднять
 	OrbitFocusBlend = 0.5, -- при таком отклонении камера смотрит уже на санки, а не вперёд по трассе, рад
 	OrbitClearance = 0.15, -- пока камера почти сзади, она не опускается ниже снега позади, рад
+	OrbitReturnDelay = 2.5, -- через столько секунд без касания камера сама возвращается за спину
+	OrbitReturnRate = 3, -- как быстро возвращается, 1/с
 	ZoomStep = 0.1, -- шаг колёсика мыши
 	ZoomMin = 0.6,
 	ZoomMax = 2.5,

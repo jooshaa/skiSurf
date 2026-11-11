@@ -45,6 +45,7 @@ local camKick = 0 -- кивок камеры после приземления, 
 local camYaw = 0 -- игрок повернул камеру вокруг санок, рад
 local camPitch = 0
 local camZoom = 1
+local camIdle = 0 -- сколько секунд игрок не трогал камеру
 local clock = 0
 
 local airTime = 0 -- сколько длится текущий полёт
@@ -81,10 +82,37 @@ RunService.PreSimulation:Connect(function()
 	end
 end)
 
+local poseConnections: { RBXScriptConnection } = {}
+
+-- Поставить свою позу. Вызывается повторно, когда персонаж догружается: части тела, скрипт
+-- Animate и Animator могут появиться позже самого персонажа.
+local function applyPose(character: Model, humanoid: Humanoid)
+	local joints = collectJoints(character)
+	if not next(joints) then
+		return
+	end
+	-- Своя поза: стандартные анимации выключаем, иначе они её перебивают
+	local animate = character:FindFirstChild("Animate")
+	if animate and animate:IsA("LocalScript") then
+		animate.Enabled = false
+	end
+	local animator = humanoid:FindFirstChildOfClass("Animator")
+	if animator then
+		for _, playing in animator:GetPlayingAnimationTracks() do
+			playing:Stop(0)
+		end
+	end
+	riderJoints = joints
+end
+
 local function onCharacter(character: Model)
 	riderRoot = nil
 	riderHumanoid = nil
 	riderJoints = {}
+	for _, connection in poseConnections do
+		connection:Disconnect()
+	end
+	table.clear(poseConnections)
 	local humanoid = character:WaitForChild("Humanoid", R.CharacterTimeout) :: Humanoid?
 	local rootPart = character:WaitForChild("HumanoidRootPart", R.CharacterTimeout) :: BasePart?
 	if not humanoid or not rootPart or player.Character ~= character then
@@ -96,21 +124,23 @@ local function onCharacter(character: Model)
 	riderRoot = rootPart
 	riderHumanoid = humanoid
 
-	local joints = collectJoints(character)
-	if next(joints) then
-		-- Своя поза: стандартные анимации выключаем, иначе они её перебивают
-		local animate = character:FindFirstChild("Animate")
-		if animate and animate:IsA("LocalScript") then
-			animate.Enabled = false
-		end
-		local animator = humanoid:FindFirstChildOfClass("Animator")
-		if animator then
-			for _, playing in animator:GetPlayingAnimationTracks() do
-				playing:Stop(0)
+	applyPose(character, humanoid)
+	local pending = false
+	table.insert(
+		poseConnections,
+		character.DescendantAdded:Connect(function()
+			if pending then
+				return
 			end
-		end
-		riderJoints = joints
-	end
+			pending = true
+			task.defer(function()
+				pending = false
+				if player.Character == character then
+					applyPose(character, humanoid)
+				end
+			end)
+		end)
+	)
 	SledView.AttachHelmet(character)
 end
 
@@ -147,6 +177,7 @@ end
 
 local function restart()
 	place(track.startS, 0)
+	camYaw, camPitch = 0, 0
 	runTime = 0
 	blink = 0
 	Hud.Result(nil, nil)
@@ -249,6 +280,8 @@ local function updateCamera(dt: number, frame: CFrame)
 	end
 	camera.CameraType = Enum.CameraType.Scriptable
 	local position = frame.Position
+	-- Забираем сдвиг каждый кадр: накопленное за время падения не должно дёрнуть камеру после возврата
+	local dragX, dragY, wheel = Input.TakeCamera()
 
 	if mode == "fall" then
 		-- Камера остаётся на месте и провожает санки взглядом
@@ -270,11 +303,19 @@ local function updateCamera(dt: number, frame: CFrame)
 	end
 
 	-- Игрок может повернуть камеру вокруг санок, поднять её и отдалить
-	local dragX, dragY, wheel = Input.TakeCamera()
-	camYaw += dragX * C.OrbitSpeed
+	camYaw = (camYaw + dragX * C.OrbitSpeed + math.pi) % (math.pi * 2) - math.pi
 	camPitch = math.clamp(camPitch + dragY * C.OrbitSpeed, C.OrbitPitchMin, C.OrbitPitchMax)
-	camZoom = math.clamp(camZoom * (1 - wheel * C.ZoomStep), C.ZoomMin, C.ZoomMax)
-	local turned = math.abs((camYaw + math.pi) % (math.pi * 2) - math.pi) + math.abs(camPitch)
+	camZoom = math.clamp(camZoom * (1 + C.ZoomStep) ^ -wheel, C.ZoomMin, C.ZoomMax)
+	-- Отпустил камеру: через паузу она сама возвращается за спину (на телефоне нет клавиши сброса)
+	if Input.CameraHeld() or dragX ~= 0 or dragY ~= 0 then
+		camIdle = 0
+	else
+		camIdle += dt
+		if camIdle > C.OrbitReturnDelay then
+			camYaw *= math.exp(-C.OrbitReturnRate * dt)
+		end
+	end
+	local turned = math.abs(camYaw) + math.abs(camPitch)
 	local direction = CFrame.Angles(0, -camYaw, 0):VectorToWorldSpace(camDirection)
 
 	local distance = (C.Distance + state.v * C.DistancePerSpeed) * camZoom
@@ -282,9 +323,12 @@ local function updateCamera(dt: number, frame: CFrame)
 	local side = Vector3.new(-direction.Z, 0, direction.X)
 	local eye = position - direction * (distance * math.cos(camPitch)) - side * (lean * C.SideSway)
 	local eyeY = position.Y + C.Height * camZoom + distance * math.sin(camPitch)
-	if turned < C.OrbitClearance then
+	-- Пока камера почти сзади, она не опускается ниже снега позади; при повороте запас плавно уходит
+	local clearance = 1 - math.clamp(turned / C.OrbitClearance, 0, 1)
+	if clearance > 0 then
 		local behind = Track.At(track, state.s - distance)
-		eyeY = math.max(eyeY, behind.Y + C.MinClearance)
+		local lifted = math.max(eyeY, behind.Y + C.MinClearance)
+		eyeY += (lifted - eyeY) * clearance
 	end
 	eye = Vector3.new(eye.X, eyeY, eye.Z)
 	local focusGround = Track.At(track, state.s + C.FocusAhead)

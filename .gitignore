@@ -16,3 +16,6 @@ sourcemap.json
 # OS
 .DS_Store
 Thumbs.db
+
+# Local build output (place files, sourcemaps, type definitions)
+build/
