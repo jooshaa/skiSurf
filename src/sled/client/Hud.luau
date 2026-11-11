@@ -27,6 +27,7 @@ local steerKnob: Frame
 local brakeButton: Frame
 local lights: { Frame } = {}
 local lightRow: Frame
+local shownTenths = -1 -- время на экране меняется 10 раз в секунду, а не каждый кадр
 
 local function round(instance: GuiObject, radius: number)
 	local corner = Instance.new("UICorner")
@@ -135,7 +136,11 @@ function Hud.Create()
 end
 
 function Hud.Update(speed: number, steer: number, brake: boolean, progress: number, time: number)
-	timeLabel.Text = formatTime(time)
+	local tenths = math.floor(time * 10)
+	if tenths ~= shownTenths then
+		shownTenths = tenths
+		timeLabel.Text = formatTime(time)
+	end
 	progressDot.Position = UDim2.fromScale(math.clamp(progress, 0, 1), -1)
 	speedFill.Size = UDim2.fromScale(math.clamp(speed / H.SpeedMax, 0, 1), 1)
 	steerKnob.Position = UDim2.fromScale(0.5 + steer * 0.44, -0.6)
@@ -220,7 +225,8 @@ function Hud.Tuning(
 		onRestart
 	)
 
-	local dragging: (number) -> ()? = nil
+	local dragging: ((number) -> ())? = nil
+	local dragInput: InputObject? = nil -- ползунок слушает только тот палец, который его взял
 	for index, tunable in SledConfig.Tunable do
 		local bar = button(
 			panel,
@@ -251,6 +257,7 @@ function Hud.Tuning(
 				or input.UserInputType == Enum.UserInputType.Touch
 			then
 				dragging = setFromX
+				dragInput = input
 				setFromX(input.Position.X)
 			end
 		end)
@@ -261,20 +268,15 @@ function Hud.Tuning(
 	UserInputService.InputChanged:Connect(function(input)
 		if
 			dragging
-			and (
-				input.UserInputType == Enum.UserInputType.MouseMovement
-				or input.UserInputType == Enum.UserInputType.Touch
-			)
+			and (input.UserInputType == Enum.UserInputType.MouseMovement or input == dragInput)
 		then
 			dragging(input.Position.X)
 		end
 	end)
 	UserInputService.InputEnded:Connect(function(input)
-		if
-			input.UserInputType == Enum.UserInputType.MouseButton1
-			or input.UserInputType == Enum.UserInputType.Touch
-		then
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input == dragInput then
 			dragging = nil
+			dragInput = nil
 		end
 	end)
 end

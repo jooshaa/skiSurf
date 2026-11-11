@@ -34,7 +34,7 @@ local function beginSteer(x: number)
 end
 
 local function moveSteer(x: number)
-	local range = I.SteerRange * screenWidth()
+	local range = math.max(1, I.SteerRange * screenWidth())
 	-- Плавающий центр: если палец ушёл дальше упора, центр едет за ним, и обратный ход сразу рулит
 	if x - steerOrigin > range then
 		steerOrigin = x - range
@@ -101,14 +101,47 @@ local function keyDown(a: Enum.KeyCode, b: Enum.KeyCode): boolean
 	return UserInputService:IsKeyDown(a) or UserInputService:IsKeyDown(b)
 end
 
+local function isOver(input: InputObject): boolean
+	return input.UserInputState == Enum.UserInputState.End
+		or input.UserInputState == Enum.UserInputState.Cancel
+end
+
+local function releaseAll()
+	steerTouch = nil
+	steerRaw = 0
+	table.clear(brakeTouches)
+	mouseSteer = false
+	mouseBrake = false
+end
+
+-- Свернули игру или открыли меню: событие конца касания может не прийти, отпускаем всё сами
+UserInputService.WindowFocusReleased:Connect(releaseAll)
+
+local function typing(): boolean
+	return UserInputService:GetFocusedTextBox() ~= nil
+end
+
 -- Вызывать раз в кадр: клавиатурный руль доходит до упора плавно
 function Input.Update(dt: number)
-	local target = 0
-	if keyDown(Enum.KeyCode.A, Enum.KeyCode.Left) then
-		target -= 1
+	-- Касание, которое система отменила без события, не должно оставить руль или тормоз зажатым
+	if steerTouch and isOver(steerTouch) then
+		steerTouch = nil
+		steerRaw = 0
 	end
-	if keyDown(Enum.KeyCode.D, Enum.KeyCode.Right) then
-		target += 1
+	for touch in brakeTouches do
+		if isOver(touch) then
+			brakeTouches[touch] = nil
+		end
+	end
+
+	local target = 0
+	if not typing() then
+		if keyDown(Enum.KeyCode.A, Enum.KeyCode.Left) then
+			target -= 1
+		end
+		if keyDown(Enum.KeyCode.D, Enum.KeyCode.Right) then
+			target += 1
+		end
 	end
 	local rate = if target == 0 then I.KeyRampDown else I.KeyRampUp
 	local change = rate * dt
@@ -131,8 +164,13 @@ end
 function Input.Brake(): boolean
 	return mouseBrake
 		or next(brakeTouches) ~= nil
-		or keyDown(Enum.KeyCode.Space, Enum.KeyCode.S)
-		or UserInputService:IsKeyDown(Enum.KeyCode.Down)
+		or (
+			not typing()
+			and (
+				keyDown(Enum.KeyCode.Space, Enum.KeyCode.S)
+				or UserInputService:IsKeyDown(Enum.KeyCode.Down)
+			)
+		)
 end
 
 return Input

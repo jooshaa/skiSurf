@@ -117,8 +117,11 @@ local riderHumanoid: Humanoid? = nil
 local function onCharacter(character: Model)
 	riderRoot = nil
 	riderHumanoid = nil
-	local humanoid = character:WaitForChild("Humanoid") :: Humanoid
-	local rootPart = character:WaitForChild("HumanoidRootPart") :: BasePart
+	local humanoid = character:WaitForChild("Humanoid", R.CharacterTimeout) :: Humanoid?
+	local rootPart = character:WaitForChild("HumanoidRootPart", R.CharacterTimeout) :: BasePart?
+	if not humanoid or not rootPart or player.Character ~= character then
+		return -- персонаж уже сменился, пока ждали
+	end
 	humanoid:SetStateEnabled(Enum.HumanoidStateType.Jumping, false)
 	rootPart.Anchored = true
 	humanoid.Sit = true
@@ -128,7 +131,8 @@ end
 
 local function disableDefaultControls()
 	GuiService.TouchControlsEnabled = false
-	local module = player:WaitForChild("PlayerScripts"):WaitForChild("PlayerModule", 10)
+	local module =
+		player:WaitForChild("PlayerScripts"):WaitForChild("PlayerModule", R.CharacterTimeout)
 	if module then
 		local controls = (require :: any)(module):GetControls()
 		controls:Disable()
@@ -144,8 +148,15 @@ local function setMode(newMode: Mode)
 	modeTime = 0
 end
 
+-- Поставить санки на трассу; камера сразу встаёт за ними, а не доворачивает с прошлого места
+local function place(s: number, speed: number)
+	SledSim.Place(track, state, s, speed)
+	local _, tangent = Track.At(track, s)
+	camDirection = Vector3.new(tangent.X, 0, tangent.Z).Unit
+end
+
 local function restart()
-	SledSim.Place(track, state, track.startS, 0)
+	place(track.startS, 0)
 	runTime = 0
 	blink = 0
 	Hud.Result(nil, nil)
@@ -177,7 +188,7 @@ local function startFall()
 	local surface = Track.Frame(track, state.s, state.d)
 	local direction =
 		surface:VectorToWorldSpace(Vector3.new(math.sin(state.slide), 0, -math.cos(state.slide)))
-	fallVelocity = direction * state.v + Vector3.new(0, state.w * 0.5, 0)
+	fallVelocity = direction * state.v + Vector3.new(0, state.w * R.FallLift, 0)
 	setMode("fall")
 end
 
@@ -204,10 +215,10 @@ end
 local function updateFall(dt: number)
 	fallVelocity -= Vector3.new(0, params.AirGravity * dt, 0)
 	fallFrame = (fallFrame + fallVelocity * dt)
-		* CFrame.Angles(R.FallSpin * dt, 0, R.FallSpin * 0.6 * dt)
+		* CFrame.Angles(R.FallSpin * dt, 0, R.FallSpin * R.FallRoll * dt)
 	runTime += dt
 	if modeTime >= R.FallTime then
-		SledSim.Place(track, state, Track.CheckpointBefore(track, state.s), R.RespawnSpeed)
+		place(Track.CheckpointBefore(track, state.s), R.RespawnSpeed)
 		blink = R.RespawnBlink
 		setMode("run")
 	end
@@ -215,10 +226,12 @@ end
 
 local function updateFinish(dt: number)
 	-- После черты санки сами выравниваются и тормозят на выкате
-	local steer = math.clamp(-state.heading * 3 - state.d * 0.02, -1, 1)
+	local steer =
+		math.clamp(-state.heading * R.FinishSteerHeading - state.d * R.FinishSteerCenter, -1, 1)
 	simulate(dt, steer, true)
-	if state.fell or state.s > track.length - 12 then
-		SledSim.Place(track, state, math.min(state.s, track.length - 12), 0)
+	local lastS = track.length - R.EndMargin
+	if state.fell or state.s > lastS then
+		SledSim.Place(track, state, math.min(state.s, lastS), 0)
 	end
 	if modeTime >= R.FinishPause then
 		restart()
@@ -229,7 +242,7 @@ end
 -- Камера: сзади и сверху, смотрит туда, куда трасса повернёт
 ----------------------------------------------------------------------------------------------------
 
-local function updateCamera(dt: number, frame: CFrame, steer: number)
+local function updateCamera(dt: number, frame: CFrame)
 	local camera = Workspace.CurrentCamera
 	if not camera then
 		return
@@ -262,12 +275,12 @@ local function updateCamera(dt: number, frame: CFrame, steer: number)
 	eye = Vector3.new(eye.X, math.max(position.Y + C.Height, behind.Y + C.MinClearance), eye.Z)
 	local focusGround = Track.At(track, state.s + C.FocusAhead)
 	local focus = position + camDirection * C.FocusAhead
-	focus = Vector3.new(focus.X, focusGround.Y + C.FocusHeight + state.air * 0.5, focus.Z)
+	focus = Vector3.new(focus.X, focusGround.Y + C.FocusHeight + state.air * C.AirFocus, focus.Z)
 
 	local wantedFov = C.FovBase + C.FovExtra * math.clamp(state.v / C.FovSpeedRef, 0, 1)
 	camFov += (wantedFov - camFov) * (1 - math.exp(-C.FovRate * dt))
 	camera.FieldOfView = camFov
-	camera.CFrame = CFrame.lookAt(eye, focus) * CFrame.Angles(0, 0, -steer * C.Roll)
+	camera.CFrame = CFrame.lookAt(eye, focus) * CFrame.Angles(0, 0, -lean / S.Lean * C.Roll)
 end
 
 ----------------------------------------------------------------------------------------------------
@@ -279,16 +292,16 @@ local function updateEffects(steer: number, brake: boolean)
 	local rate = 0
 	if mode == "run" and not state.airborne then
 		rate = state.v * S.SprayBase + slip * S.SprayTurn + (if brake then S.SprayBrake else 0)
-		rate += math.abs(steer) * S.SprayTurn * 0.3
+		rate += math.abs(steer) * S.SprayTurn * S.SpraySteer
 	end
 	for _, spray in sprays do
 		spray.Rate = math.min(rate, S.SprayMax)
 	end
 
 	-- После респауна санки мигают: видно, что это новая попытка
-	local hidden = blink > 0 and math.floor(blink * 10) % 2 == 0
+	local hidden = blink > 0 and math.floor(blink * R.BlinkRate) % 2 == 0
 	for _, part in sledParts do
-		part.Transparency = if hidden then 0.6 else 0
+		part.Transparency = if hidden then R.BlinkTransparency else 0
 	end
 end
 
@@ -328,7 +341,7 @@ local function onFrame(frameTime: number)
 		riderHumanoid.Sit = true -- встал (например, после возрождения): сажаем обратно
 	end
 
-	updateCamera(dt, frame, steer)
+	updateCamera(dt, frame)
 	updateEffects(steer, brake)
 	Hud.Update(state.v, steer, brake, state.s / track.finishS, runTime)
 end

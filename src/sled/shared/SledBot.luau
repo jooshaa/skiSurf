@@ -27,7 +27,7 @@ function SledBot.Control(
 ): (number, boolean)
 	local _, _, _, _, kappa = Track.At(track, state.s)
 	-- Держим середину и заранее доворачиваем на кривизну трассы
-	local wanted = math.clamp(-state.d * B.CenterGain, -0.5, 0.5)
+	local wanted = math.clamp(-state.d * B.CenterGain, -B.MaxAngle, B.MaxAngle)
 	local feed = kappa * state.v * (1 - p.Assist) / p.TurnRate
 	local steer = math.clamp((wanted - state.heading) * B.HeadingGain + feed, -1, 1)
 	local ahead = Track.MaxKappa(track, state.s, state.v * B.LookTime)
@@ -70,7 +70,7 @@ function SledBot.Run(p: SledConfig.Physics, useBrake: boolean, useSteer: boolean
 		if state.fell then
 			result.falls += 1
 			table.insert(result.fallAt, math.round(state.s))
-			if result.falls > 50 then
+			if result.falls > B.MaxFalls then
 				break
 			end
 			result.time += SledConfig.Run.FallTime

@@ -64,8 +64,11 @@ function SledSim.Step(
 	brake: boolean,
 	dt: number
 )
-	if state.fell then
+	if state.fell or dt <= 0 then
 		return
+	end
+	if steer ~= steer then
+		steer = 0 -- NaN от ввода не должен попасть в расчёт
 	end
 	local pos, tangent, right, _, kappa = Track.At(track, state.s)
 	local heightBefore = pos.Y + right.Y * state.d
@@ -92,11 +95,17 @@ function SledSim.Step(
 		if brake then
 			accel -= p.Brake
 		end
-		state.v = math.max(state.v + accel * dt, if brake then p.BrakeMinSpeed else p.MinSpeed)
+		-- Ниже минимума санки не останавливаются, но и не прыгают до него рывком
+		local floor = if brake then p.BrakeMinSpeed else p.MinSpeed
+		local speed = state.v + accel * dt
+		if speed < floor then
+			speed = math.max(speed, math.min(floor, state.v + p.MinSpeedAccel * dt))
+		end
+		state.v = speed
 	end
 
 	-- Перемещение. На внутренней стороне поворота тот же путь проходит больше трассы.
-	local ds = state.v * math.cos(state.slide) * dt / math.max(0.4, 1 - kappa * state.d)
+	local ds = state.v * math.cos(state.slide) * dt / math.max(p.InsideLimit, 1 - kappa * state.d)
 	state.s += ds
 	state.d += state.v * math.sin(state.slide) * dt
 

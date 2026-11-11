@@ -16,6 +16,8 @@ export type Physics = {
 	Drag: number, -- сопротивление воздуха, растёт с квадратом скорости
 	Brake: number, -- замедление при зажатом тормозе
 	MinSpeed: number, -- санки не останавливаются сами
+	MinSpeedAccel: number, -- как быстро санки набирают минимальную скорость (без рывка)
+	InsideLimit: number, -- предел ускорения пути по внутренней стороне поворота
 	BrakeMinSpeed: number, -- до какой скорости можно затормозить
 	TurnRate: number, -- поворот носа при полном отклонении руля, рад/с
 	Grip: number, -- как быстро движение догоняет нос (больше = цепче, меньше = занос)
@@ -39,6 +41,8 @@ SledConfig.Physics = {
 	Drag = 0.0008,
 	Brake = 55,
 	MinSpeed = 12,
+	MinSpeedAccel = 40,
+	InsideLimit = 0.4,
 	BrakeMinSpeed = 6,
 	TurnRate = 1.6,
 	Grip = 6,
@@ -115,9 +119,17 @@ SledConfig.Run = {
 	CountdownLights = 3,
 	FallTime = 1.1, -- сколько санки кувыркаются после вылета
 	FallSpin = 5, -- скорость кувырка, рад/с
+	FallRoll = 0.6, -- доля кувырка вбок
+	FallLift = 0.5, -- доля вертикальной скорости, с которой санки уходят в вылет
+	FinishSteerHeading = 3, -- после финиша санки сами выравниваются...
+	FinishSteerCenter = 0.02, -- ...и возвращаются к середине
+	EndMargin = 12, -- ближе этого к концу полотна санки не едут
+	BlinkRate = 10, -- миганий в секунду после респауна
+	BlinkTransparency = 0.6,
 	RespawnSpeed = 45,
 	RespawnBlink = 1.2, -- мигание после респауна
 	FinishPause = 4, -- пауза с результатом перед новым стартом
+	CharacterTimeout = 10, -- сколько ждём появления частей персонажа
 	MaxFrameTime = 0.1, -- длиннее кадр не считаем (подвисание); ниже 10 кадров игра замедляется
 	SubStep = 1 / 90, -- шаг расчёта не длиннее этого
 }
@@ -140,6 +152,7 @@ SledConfig.Camera = {
 	LateralFollow = 0.5, -- доля бокового смещения санок в точке взгляда
 	FocusAhead = 26,
 	FocusHeight = 3,
+	AirFocus = 0.5, -- доля высоты полёта, на которую поднимается взгляд
 	TurnRate = 5, -- как быстро камера доворачивает
 	FovBase = 68,
 	FovExtra = 24,
@@ -167,6 +180,7 @@ SledConfig.Visual = {
 	PineHeight = 26,
 	PineWidth = 12,
 	GateHeight = 16,
+	StartGateOffset = 10, -- стартовые ворота на столько студов впереди санок
 	GatePole = 1.6,
 	FinishTiles = 8,
 	SpawnPadSize = 12,
@@ -196,6 +210,7 @@ SledConfig.Sled = {
 	RunnerColor = Color3.fromRGB(240, 200, 70),
 	SprayBase = 0.12, -- частиц в секунду на единицу скорости
 	SprayTurn = 60, -- добавка в заносе
+	SpraySteer = 0.3, -- доля SprayTurn от самого руления
 	SprayBrake = 50,
 	SprayMax = 90,
 }
@@ -210,9 +225,11 @@ SledConfig.Bot = {
 	LookTime = 1.3, -- бот смотрит вперёд на столько секунд пути
 	BrakeMargin = 0.8, -- тормозит, если поворот требует больше этой доли TurnRate
 	CenterGain = 0.03,
+	MaxAngle = 0.5, -- под каким углом к трассе бот возвращается к середине
+	MaxFalls = 50,
 	HeadingGain = 4,
 	MaxTime = 300,
-	Step = 1 / 60,
+	Step = 1 / 120, -- как у игрока при 60 кадрах: два шага расчёта на кадр
 }
 
 return SledConfig

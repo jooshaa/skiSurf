@@ -191,8 +191,11 @@ end
 
 local model = Instance.new("Model")
 model.Name = "Mountain"
+-- Санки едут только на клиенте, сервер видит игрока на старте: без этого при StreamingEnabled
+-- дальняя часть трассы не подгрузилась бы
+model.ModelStreamingMode = Enum.ModelStreamingMode.Persistent
 buildSurface(model)
-buildGate(model, track.startS + 10, V.Checkpoint, 1)
+buildGate(model, track.startS + V.StartGateOffset, V.Checkpoint, 1)
 for _, checkpoint in track.checkpoints do
 	buildGate(model, checkpoint, V.Checkpoint, 1)
 end
