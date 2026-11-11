@@ -14,6 +14,7 @@ export type State = {
 	w: number, -- вертикальная скорость
 	air: number, -- высота над снегом
 	airborne: boolean,
+	yaw: number, -- текущая скорость поворота носа, рад/с
 	fell: boolean, -- вылетел за край
 }
 
@@ -35,6 +36,7 @@ function SledSim.Place(track: Track.Data, state: State, s: number, speed: number
 	state.w = 0
 	state.air = 0
 	state.airborne = false
+	state.yaw = 0
 	state.fell = false
 end
 
@@ -49,6 +51,7 @@ function SledSim.New(track: Track.Data, s: number): State
 		w = 0,
 		air = 0,
 		airborne = false,
+		yaw = 0,
 		fell = false,
 	}
 	SledSim.Place(track, state, s, 0)
@@ -75,7 +78,10 @@ function SledSim.Step(
 	local grounded = not state.airborne
 
 	-- Руль поворачивает нос; движение догоняет нос со скоростью сцепления
-	state.heading += steer * p.TurnRate * (if grounded then 1 else p.AirTurn) * dt
+	-- Санки набирают поворот не мгновенно: так в руле чувствуется вес
+	local wantedYaw = steer * p.TurnRate * (if grounded then 1 else p.AirTurn)
+	state.yaw += (wantedYaw - state.yaw) * (1 - math.exp(-p.SteerResponse * dt))
+	state.heading += state.yaw * dt
 	if grounded then
 		state.slide += (state.heading - state.slide) * (1 - math.exp(-p.Grip * dt))
 		local release = 1 - math.abs(steer)

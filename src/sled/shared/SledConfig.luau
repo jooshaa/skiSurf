@@ -20,6 +20,7 @@ export type Physics = {
 	InsideLimit: number, -- предел ускорения пути по внутренней стороне поворота
 	BrakeMinSpeed: number, -- до какой скорости можно затормозить
 	TurnRate: number, -- поворот носа при полном отклонении руля, рад/с
+	SteerResponse: number, -- как быстро санки откликаются на руль (меньше = тяжелее, с инерцией)
 	Grip: number, -- как быстро движение догоняет нос (больше = цепче, меньше = занос)
 	AlignRate: number, -- как быстро нос возвращается по ходу, когда руль отпущен
 	MaxSlip: number, -- предел угла заноса
@@ -45,6 +46,7 @@ SledConfig.Physics = {
 	InsideLimit = 0.4,
 	BrakeMinSpeed = 6,
 	TurnRate = 1.6,
+	SteerResponse = 9,
 	Grip = 6,
 	AlignRate = 3,
 	MaxSlip = 0.6,
@@ -77,6 +79,7 @@ SledConfig.Tunable = {
 	{ key = "Brake", min = 15, max = 120 },
 	{ key = "TurnRate", min = 0.6, max = 3.5 },
 	{ key = "Grip", min = 1, max = 14 },
+	{ key = "SteerResponse", min = 2, max = 30 },
 	{ key = "SlipDrag", min = 0, max = 1.5 },
 	{ key = "Assist", min = 0, max = 0.8 },
 	{ key = "AirGravity", min = 60, max = 220 },
@@ -125,7 +128,6 @@ SledConfig.Run = {
 	FinishSteerCenter = 0.02, -- ...и возвращаются к середине
 	EndMargin = 12, -- ближе этого к концу полотна санки не едут
 	BlinkRate = 10, -- миганий в секунду после респауна
-	BlinkTransparency = 0.6,
 	RespawnSpeed = 45,
 	RespawnBlink = 1.2, -- мигание после респауна
 	FinishPause = 4, -- пауза с результатом перед новым стартом
@@ -159,6 +161,12 @@ SledConfig.Camera = {
 	FovSpeedRef = 150,
 	FovRate = 3,
 	Roll = 0.06, -- наклон камеры в повороте
+	SideSway = 2.2, -- на сколько студов камеру выносит наружу поворота
+	ShakeAmount = 0.007, -- дрожь камеры на полной скорости, рад
+	ShakeFreq = 13,
+	ShakeSpeedRef = 150,
+	LandKick = 0.07, -- кивок камеры при приземлении, рад
+	LandKickDecay = 7,
 	FallFov = 60,
 }
 
@@ -203,16 +211,94 @@ SledConfig.Sled = {
 	RideHeight = 0.9, -- низ полозьев над линией полотна
 	Lean = 0.32, -- наклон санок в повороте
 	LeanRate = 8,
+	DriftVisual = 0.5, -- на сколько санки видимо доворачивают нос в заносе (доля угла заноса)
 	Board = Vector3.new(3.2, 0.4, 6),
 	Runner = Vector3.new(0.4, 0.5, 6.6),
-	RiderOffset = Vector3.new(0, 2.7, 0.4), -- где корень персонажа относительно низа санок
+	NoseLength = 1.6,
+	NoseLift = 0.55,
+	NoseAngle = math.rad(50),
 	Color = Color3.fromRGB(220, 50, 50),
 	RunnerColor = Color3.fromRGB(240, 200, 70),
-	SprayBase = 0.12, -- частиц в секунду на единицу скорости
-	SprayTurn = 60, -- добавка в заносе
-	SpraySteer = 0.3, -- доля SprayTurn от самого руления
-	SprayBrake = 50,
-	SprayMax = 90,
+	RiderOffset = Vector3.new(0, 2.8, 1.2), -- где корень персонажа относительно низа санок
+	RiderLean = 0.3, -- райдер наклоняется в поворот сильнее санок, рад
+	RiderTuck = 0.28, -- наклон вперёд на полной скорости, рад
+	RiderBrakeLean = 0.2, -- откидывается назад на тормозе, рад
+	RiderRate = 6,
+	TuckSpeedRef = 150,
+}
+
+-- Готовые 3D-модели (сгенерированы в Studio). Пустая строка = модели нет, санки из блоков.
+SledConfig.Assets = {
+	Sled = {
+		mesh = "rbxassetid://117835823962192",
+		texture = "rbxassetid://132425872814667",
+		length = 6, -- длина санок в студах
+		yaw = 0, -- поворот модели, чтобы нос смотрел вперёд, градусов
+		lift = 0, -- подъём над линией полозьев
+	},
+	Helmet = {
+		mesh = "rbxassetid://108995259556996",
+		texture = "rbxassetid://106517137680329",
+		width = 2, -- ширина шлема в студах: чуть больше головы
+		yaw = 0, -- поворот модели, чтобы очки смотрели вперёд, градусов
+		offset = Vector3.new(0, 0.2, 0), -- сдвиг от центра головы
+		hideHair = true, -- причёска и шапка торчат сквозь шлем: прячем их, пока шлем надет
+	},
+}
+
+-- Снег из-под санок
+SledConfig.Fx = {
+	SnowColor = Color3.fromRGB(205, 220, 244), -- чуть голубее снега, иначе белое на белом не видно
+	PuffStart = 0.35, -- начальный размер облачка в долях конечного
+	PuffOpacity = 0,
+	Inherit = 0.6, -- какую долю скорости санок получает снежная пыль: без этого она сразу остаётся позади -- прозрачность в начале (0 = плотное)
+	PuffGravity = 18,
+	PuffGlow = 0,
+	Spread = 22,
+	EmitHeight = 0.3,
+	RearTilt = 0.9, -- пыль из-под полозьев летит назад под этим углом, рад
+	SpraySize = 4,
+	SprayLife = 0.7,
+	SpraySpeed = 10,
+	SprayPerSpeed = 1, -- частиц в секунду на единицу скорости
+	SprayBrake = 120, -- добавка на тормозе
+	SprayMax = 220,
+	CarveTilt = 1.05, -- шлейф в повороте летит вбок под этим углом, рад
+	CarveBack = 0.5, -- где по длине санок рождается шлейф (доля от середины до хвоста)
+	CarveSize = 8,
+	CarveLife = 1,
+	CarveSpeed = 22,
+	CarvePerSpeed = 6, -- частиц в секунду на единицу скорости и радиан заноса
+	CarveSteer = 0.15, -- сколько руль добавляет к заносу для шлейфа
+	CarveMax = 260,
+	LandSize = 6,
+	LandLife = 0.9,
+	LandSpeed = 16,
+	LandSpread = 80,
+	LandCount = 40,
+	LandMinAir = 0.2, -- полёт короче этого приземлением не считается, секунд
+	LandFullAir = 0.9, -- полёт этой длины даёт полное облако и полный кивок камеры
+	TrailWidth = 0.35,
+	TrailHeight = 0.06,
+	TrailLife = 1.4,
+	TrailColor = Color3.fromRGB(160, 180, 212),
+	TrailOpacity = 0.3,
+	BlinkTransparency = 0.6,
+}
+
+-- Снегопад вокруг игрока
+SledConfig.Snowfall = {
+	Area = 100, -- сторона объёма вокруг игрока
+	Height = 28,
+	Rate = 1200, -- снежинок в секунду
+	Lifetime = 1.6,
+	Speed = 9,
+	Spread = 20,
+	Size = 0.5,
+	Opacity = 0.2,
+	Glow = 0.3,
+	Wind = Vector3.new(2, 0, 1),
+	LeadTime = 0.3, -- объём снегопада сдвинут вперёд на столько секунд пути; камера остаётся внутри
 }
 
 SledConfig.Hud = {
