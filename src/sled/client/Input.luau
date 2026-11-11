@@ -18,6 +18,12 @@ local brakeTouches: { [InputObject]: boolean } = {}
 local mouseSteer = false
 local mouseBrake = false
 local keySteer = 0
+local cameraTouch: InputObject? = nil
+local cameraLast = Vector3.zero
+local mouseCamera = false
+local cameraX = 0 -- накопленный сдвиг для камеры, пикселей
+local cameraY = 0
+local cameraZoom = 0 -- накопленные щелчки колёсика
 
 local function screenWidth(): number
 	local camera = Workspace.CurrentCamera
@@ -26,6 +32,12 @@ end
 
 local function isLeftHalf(x: number): boolean
 	return x < screenWidth() / 2
+end
+
+-- Верхняя часть экрана отдана камере: большие пальцы рулят и тормозят внизу
+local function isCameraZone(y: number): boolean
+	local camera = Workspace.CurrentCamera
+	return camera ~= nil and y < camera.ViewportSize.Y * I.CameraZone
 end
 
 local function beginSteer(x: number)
@@ -52,8 +64,16 @@ UserInputService.InputBegan:Connect(function(input, processed)
 	if processed then
 		return -- нажатие по кнопке или ползунку панели
 	end
-	if input.UserInputType == Enum.UserInputType.Touch then
-		if isLeftHalf(input.Position.X) then
+	if input.UserInputType == Enum.UserInputType.MouseButton2 then
+		mouseCamera = true
+		UserInputService.MouseBehavior = Enum.MouseBehavior.LockCurrentPosition
+	elseif input.UserInputType == Enum.UserInputType.Touch then
+		if isCameraZone(input.Position.Y) then
+			if not cameraTouch then
+				cameraTouch = input
+				cameraLast = input.Position
+			end
+		elseif isLeftHalf(input.Position.X) then
 			if not steerTouch then
 				steerTouch = input
 				beginSteer(input.Position.X)
@@ -75,9 +95,20 @@ UserInputService.InputChanged:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.Touch then
 		if input == steerTouch then
 			moveSteer(input.Position.X)
+		elseif input == cameraTouch then
+			cameraX += input.Position.X - cameraLast.X
+			cameraY += input.Position.Y - cameraLast.Y
+			cameraLast = input.Position
 		end
-	elseif input.UserInputType == Enum.UserInputType.MouseMovement and mouseSteer then
-		moveSteer(input.Position.X)
+	elseif input.UserInputType == Enum.UserInputType.MouseMovement then
+		if mouseCamera then
+			cameraX += input.Delta.X
+			cameraY += input.Delta.Y
+		elseif mouseSteer then
+			moveSteer(input.Position.X)
+		end
+	elseif input.UserInputType == Enum.UserInputType.MouseWheel then
+		cameraZoom += input.Position.Z
 	end
 end)
 
@@ -87,7 +118,13 @@ UserInputService.InputEnded:Connect(function(input)
 			steerTouch = nil
 			steerRaw = 0
 		end
+		if input == cameraTouch then
+			cameraTouch = nil
+		end
 		brakeTouches[input] = nil
+	elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
+		mouseCamera = false
+		UserInputService.MouseBehavior = Enum.MouseBehavior.Default
 	elseif isPointer(input) then
 		if mouseSteer then
 			steerRaw = 0
@@ -112,6 +149,11 @@ local function releaseAll()
 	table.clear(brakeTouches)
 	mouseSteer = false
 	mouseBrake = false
+	cameraTouch = nil
+	if mouseCamera then
+		mouseCamera = false
+		UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+	end
 end
 
 -- Свернули игру или открыли меню: событие конца касания может не прийти, отпускаем всё сами
@@ -127,6 +169,9 @@ function Input.Update(dt: number)
 	if steerTouch and isOver(steerTouch) then
 		steerTouch = nil
 		steerRaw = 0
+	end
+	if cameraTouch and isOver(cameraTouch) then
+		cameraTouch = nil
 	end
 	for touch in brakeTouches do
 		if isOver(touch) then
@@ -146,6 +191,13 @@ function Input.Update(dt: number)
 	local rate = if target == 0 then I.KeyRampDown else I.KeyRampUp
 	local change = rate * dt
 	keySteer += math.clamp(target - keySteer, -change, change)
+end
+
+-- Сдвиг для камеры с прошлого вызова: пиксели вправо, пиксели вниз, щелчки колёсика (+ ближе)
+function Input.TakeCamera(): (number, number, number)
+	local x, y, zoom = cameraX, cameraY, cameraZoom
+	cameraX, cameraY, cameraZoom = 0, 0, 0
+	return x, y, zoom
 end
 
 -- Руль от -1 (влево) до 1 (вправо)

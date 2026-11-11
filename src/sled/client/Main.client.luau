@@ -42,6 +42,9 @@ local fallVelocity = Vector3.zero
 local camDirection = Vector3.new(0, 0, -1)
 local camFov = C.FovBase
 local camKick = 0 -- кивок камеры после приземления, затухает
+local camYaw = 0 -- игрок повернул камеру вокруг санок, рад
+local camPitch = 0
+local camZoom = 1
 local clock = 0
 
 local airTime = 0 -- сколько длится текущий полёт
@@ -55,10 +58,33 @@ local riderPitch = 0
 
 local riderRoot: BasePart? = nil
 local riderHumanoid: Humanoid? = nil
+local riderJoints: { [Instance]: CFrame } = {} -- суставы и их поворот в позе райдера
+
+-- Суставы аватара бывают двух видов (Motor6D и AnimationConstraint), у обоих есть Transform
+local function collectJoints(character: Model): { [Instance]: CFrame }
+	local joints: { [Instance]: CFrame } = {}
+	local found = 0
+	for _, item in character:GetDescendants() do
+		local angle = (S.Pose :: { [string]: number })[item.Name]
+		if angle and (item:IsA("Motor6D") or item:IsA("AnimationConstraint")) then
+			joints[item] = CFrame.Angles(math.rad(angle), 0, 0)
+			found += 1
+		end
+	end
+	return if found >= S.PoseMinJoints then joints else {}
+end
+
+-- Движок сбрасывает Transform каждый кадр, поэтому позу ставим перед каждым шагом симуляции
+RunService.PreSimulation:Connect(function()
+	for joint, transform in riderJoints do
+		(joint :: any).Transform = transform
+	end
+end)
 
 local function onCharacter(character: Model)
 	riderRoot = nil
 	riderHumanoid = nil
+	riderJoints = {}
 	local humanoid = character:WaitForChild("Humanoid", R.CharacterTimeout) :: Humanoid?
 	local rootPart = character:WaitForChild("HumanoidRootPart", R.CharacterTimeout) :: BasePart?
 	if not humanoid or not rootPart or player.Character ~= character then
@@ -69,6 +95,22 @@ local function onCharacter(character: Model)
 	humanoid.Sit = true
 	riderRoot = rootPart
 	riderHumanoid = humanoid
+
+	local joints = collectJoints(character)
+	if next(joints) then
+		-- Своя поза: стандартные анимации выключаем, иначе они её перебивают
+		local animate = character:FindFirstChild("Animate")
+		if animate and animate:IsA("LocalScript") then
+			animate.Enabled = false
+		end
+		local animator = humanoid:FindFirstChildOfClass("Animator")
+		if animator then
+			for _, playing in animator:GetPlayingAnimationTracks() do
+				playing:Stop(0)
+			end
+		end
+		riderJoints = joints
+	end
 	SledView.AttachHelmet(character)
 end
 
@@ -227,15 +269,32 @@ local function updateCamera(dt: number, frame: CFrame)
 		end
 	end
 
-	local distance = C.Distance + state.v * C.DistancePerSpeed
-	local behind = Track.At(track, state.s - distance)
+	-- Игрок может повернуть камеру вокруг санок, поднять её и отдалить
+	local dragX, dragY, wheel = Input.TakeCamera()
+	camYaw += dragX * C.OrbitSpeed
+	camPitch = math.clamp(camPitch + dragY * C.OrbitSpeed, C.OrbitPitchMin, C.OrbitPitchMax)
+	camZoom = math.clamp(camZoom * (1 - wheel * C.ZoomStep), C.ZoomMin, C.ZoomMax)
+	local turned = math.abs((camYaw + math.pi) % (math.pi * 2) - math.pi) + math.abs(camPitch)
+	local direction = CFrame.Angles(0, -camYaw, 0):VectorToWorldSpace(camDirection)
+
+	local distance = (C.Distance + state.v * C.DistancePerSpeed) * camZoom
 	-- В повороте камеру выносит наружу: видно, как санки уходят под тебя
-	local side = Vector3.new(-camDirection.Z, 0, camDirection.X)
-	local eye = position - camDirection * distance - side * (lean * C.SideSway)
-	eye = Vector3.new(eye.X, math.max(position.Y + C.Height, behind.Y + C.MinClearance), eye.Z)
+	local side = Vector3.new(-direction.Z, 0, direction.X)
+	local eye = position - direction * (distance * math.cos(camPitch)) - side * (lean * C.SideSway)
+	local eyeY = position.Y + C.Height * camZoom + distance * math.sin(camPitch)
+	if turned < C.OrbitClearance then
+		local behind = Track.At(track, state.s - distance)
+		eyeY = math.max(eyeY, behind.Y + C.MinClearance)
+	end
+	eye = Vector3.new(eye.X, eyeY, eye.Z)
 	local focusGround = Track.At(track, state.s + C.FocusAhead)
 	local focus = position + camDirection * C.FocusAhead
 	focus = Vector3.new(focus.X, focusGround.Y + C.FocusHeight + state.air * C.AirFocus, focus.Z)
+	-- Чем дальше камера от положения «сзади», тем больше она смотрит на сами санки
+	focus = focus:Lerp(
+		position + Vector3.new(0, C.FocusHeight, 0),
+		math.clamp(turned / C.OrbitFocusBlend, 0, 1)
+	)
 
 	local wantedFov = C.FovBase + C.FovExtra * math.clamp(state.v / C.FovSpeedRef, 0, 1)
 	camFov += (wantedFov - camFov) * (1 - math.exp(-C.FovRate * dt))
@@ -326,6 +385,8 @@ UserInputService.InputBegan:Connect(function(input, processed)
 		restart()
 	elseif input.KeyCode == Enum.KeyCode.B then
 		autopilot = not autopilot
+	elseif input.KeyCode == Enum.KeyCode.C then
+		camYaw, camPitch, camZoom = 0, 0, 1 -- камера обратно за спину
 	end
 end)
 
