@@ -413,6 +413,43 @@ Config.Map = {
 	},
 	HouseColors = 7, -- сколько цветов стен в палитре домиков
 
+	-- 3D-модели, сгенерированные в Studio для этой игры (свои, не из магазина). Сервер загружает
+	-- их при старте; если модель не загрузилась, постройка собирается из простых деталей.
+	-- height: высота в мире (студов), yaw: поворот, чтобы «лицо» модели смотрело вперёд (градусов).
+	Assets = {
+		Sleigh = {
+			mesh = "rbxassetid://91597671614359",
+			texture = "rbxassetid://82702579366858",
+			height = 10,
+			yaw = 0,
+			solid = true, -- столкновение по форме модели, а не по коробке
+		},
+		Snowman = {
+			mesh = "rbxassetid://110954337937922",
+			texture = "rbxassetid://78918260643784",
+			height = 10,
+			yaw = 0,
+			solid = false,
+		},
+		Lamp = {
+			mesh = "rbxassetid://84214837289403",
+			texture = "rbxassetid://87267907286966",
+			height = 12,
+			yaw = 0,
+			solid = false,
+		},
+		Stall = {
+			mesh = "rbxassetid://89044135036401",
+			texture = "rbxassetid://100908881583121",
+			height = 10,
+			yaw = 0,
+			solid = true,
+		},
+	},
+	AssetFolder = "MapMeshes", -- папка в ReplicatedStorage с загруженными моделями (для клиента)
+	LampLightHeight = 0.82, -- доля высоты фонаря, на которой горит свет
+	FlyingSleighScale = 1.5, -- во сколько раз сани в небе больше саней на площади
+
 	-- Освещение: зимние сумерки, чтобы горели окна и гирлянды
 	Lighting = {
 		ClockTime = 16.6,

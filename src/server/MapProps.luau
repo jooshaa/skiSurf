@@ -2,7 +2,65 @@
 -- MapProps: постройки и украшения карты из простых деталей (свой стиль, без чужих моделей).
 -- Каждая функция получает CFrame точки на земле: -Z это «лицо» постройки, Y вверх.
 -- Все детали закреплены и не ловят касания; мелкие украшения не мешают ходить.
+local AssetService = game:GetService("AssetService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Config = require(ReplicatedStorage.Config)
+
 local MapProps = {}
+
+type Asset = { mesh: string, texture: string, height: number, yaw: number, solid: boolean }
+
+-- Загруженные модели: false значит «не загрузилась, строим из простых деталей»
+local templates: { [string]: MeshPart | false } = {}
+
+-- Загрузить все модели из Config.Map.Assets. Копии кладутся в ReplicatedStorage для эффектов клиента.
+function MapProps.Preload()
+	local shared = Instance.new("Folder")
+	shared.Name = Config.Map.AssetFolder
+	for name, asset: Asset in Config.Map.Assets :: { [string]: Asset } do
+		local ok, result = pcall(function()
+			return (AssetService :: any):CreateMeshPartAsync(Content.fromUri(asset.mesh), {
+				CollisionFidelity = if asset.solid
+					then Enum.CollisionFidelity.Hull
+					else Enum.CollisionFidelity.Box,
+			})
+		end)
+		if ok and typeof(result) == "Instance" and result:IsA("MeshPart") then
+			result.Name = name
+			result.TextureID = asset.texture
+			result.Size *= asset.height / result.Size.Y
+			result.Anchored = true
+			result.CanTouch = false
+			templates[name] = result
+			result:Clone().Parent = shared
+		else
+			templates[name] = false
+			warn(
+				string.format(
+					"[MapProps] модель %s не загрузилась: %s",
+					name,
+					tostring(result)
+				)
+			)
+		end
+	end
+	shared.Parent = ReplicatedStorage
+end
+
+-- Копия загруженной модели, стоящая на точке base лицом вперёд; nil, если модели нет
+function MapProps.Mesh(name: string, base: CFrame): MeshPart?
+	local template = templates[name]
+	local asset: Asset? = (Config.Map.Assets :: { [string]: Asset })[name]
+	if not template or not asset then
+		return nil
+	end
+	local mesh = template:Clone()
+	mesh.CFrame = base
+		* CFrame.Angles(0, math.rad(asset.yaw), 0)
+		* CFrame.new(0, mesh.Size.Y / 2, 0)
+	return mesh
+end
 
 local WHITE = Color3.fromRGB(245, 248, 255)
 local SNOW = Color3.fromRGB(235, 242, 252)
@@ -351,6 +409,22 @@ end
 -- Фонарь: столб, светящийся плафон, крышка со снегом
 function MapProps.Lamp(parent: Instance, base: CFrame): Model
 	local lamp = model("Lamp")
+	local mesh = MapProps.Mesh("Lamp", base)
+	if mesh then
+		mesh.Parent = lamp
+		lamp.PrimaryPart = mesh
+		local light = decor(
+			lamp,
+			"Light",
+			Vector3.new(1, 1, 1),
+			base * CFrame.new(0, mesh.Size.Y * Config.Map.LampLightHeight, 0),
+			WARM
+		)
+		light.Transparency = 1
+		glow(light, WARM, 26, 1.4)
+		lamp.Parent = parent
+		return lamp
+	end
 	local dark = Color3.fromRGB(40, 44, 54)
 	cylinder(lamp, "Pole", 0.7, 11, base, 5.5, dark, Enum.Material.Metal)
 	local lantern = decor(
@@ -378,6 +452,13 @@ end
 -- Снеговик: три шара, морковка, шляпа, шарф
 function MapProps.Snowman(parent: Instance, base: CFrame): Model
 	local snowman = model("Snowman")
+	local mesh = MapProps.Mesh("Snowman", base)
+	if mesh then
+		mesh.Parent = snowman
+		snowman.PrimaryPart = mesh
+		snowman.Parent = parent
+		return snowman
+	end
 	ball(snowman, "Bottom", 5, base * CFrame.new(0, 2.2, 0), WHITE, Enum.Material.Snow)
 	ball(snowman, "Middle", 3.8, base * CFrame.new(0, 5.6, 0), WHITE, Enum.Material.Snow)
 	ball(snowman, "Head", 2.8, base * CFrame.new(0, 8.2, 0), WHITE, Enum.Material.Snow)
@@ -510,6 +591,13 @@ end
 -- Ярмарочный прилавок: стойка, столбики, полосатый навес под снегом
 function MapProps.Stall(parent: Instance, base: CFrame, colorIndex: number): Model
 	local stall = model("Stall")
+	local mesh = MapProps.Mesh("Stall", base)
+	if mesh then
+		mesh.Parent = stall
+		stall.PrimaryPart = mesh
+		stall.Parent = parent
+		return stall
+	end
 	part(
 		stall,
 		"Counter",

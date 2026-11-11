@@ -493,25 +493,46 @@ local function buildSleigh()
 	local gold = Color3.fromRGB(240, 190, 60)
 	local dark = Color3.fromRGB(60, 40, 30)
 
-	local body = block("Body", Vector3.new(7, 2.5, 12), origin * CFrame.new(0, 2.6, 0), red, sleigh)
-	block("Back", Vector3.new(7, 4, 1.5), origin * CFrame.new(0, 5, 5.25), red, sleigh)
-	block("Front", Vector3.new(7, 2, 1.5), origin * CFrame.new(0, 4.2, -5.25), red, sleigh)
-	block("Trim", Vector3.new(7.4, 0.4, 12.4), origin * CFrame.new(0, 3.95, 0), gold, sleigh)
-	block("RunnerLeft", Vector3.new(0.6, 0.6, 14), origin * CFrame.new(-3, 0.4, 0), dark, sleigh)
-	block("RunnerRight", Vector3.new(0.6, 0.6, 14), origin * CFrame.new(3, 0.4, 0), dark, sleigh)
-	for _, x in { -3, 3 } do
-		for _, z in { -4, 4 } do
-			block("Strut", Vector3.new(0.5, 1, 0.5), origin * CFrame.new(x, 1, z), dark, sleigh)
+	-- Сани: загруженная 3D-модель, а если её нет, простая сборка из деталей
+	local body: BasePart
+	local mesh = MapProps.Mesh("Sleigh", origin)
+	if mesh then
+		mesh.Name = "Body"
+		mesh.Parent = sleigh
+		body = mesh
+	else
+		body = block("Body", Vector3.new(7, 2.5, 12), origin * CFrame.new(0, 2.6, 0), red, sleigh)
+		block("Back", Vector3.new(7, 4, 1.5), origin * CFrame.new(0, 5, 5.25), red, sleigh)
+		block("Front", Vector3.new(7, 2, 1.5), origin * CFrame.new(0, 4.2, -5.25), red, sleigh)
+		block("Trim", Vector3.new(7.4, 0.4, 12.4), origin * CFrame.new(0, 3.95, 0), gold, sleigh)
+		block(
+			"RunnerLeft",
+			Vector3.new(0.6, 0.6, 14),
+			origin * CFrame.new(-3, 0.4, 0),
+			dark,
+			sleigh
+		)
+		block(
+			"RunnerRight",
+			Vector3.new(0.6, 0.6, 14),
+			origin * CFrame.new(3, 0.4, 0),
+			dark,
+			sleigh
+		)
+		for _, x in { -3, 3 } do
+			for _, z in { -4, 4 } do
+				block("Strut", Vector3.new(0.5, 1, 0.5), origin * CFrame.new(x, 1, z), dark, sleigh)
+			end
 		end
+		local sack = block(
+			"Sack",
+			Vector3.new(5, 5, 5),
+			origin * CFrame.new(0, 5.5, 1.5),
+			Color3.fromRGB(150, 110, 70),
+			sleigh
+		)
+		sack.Shape = Enum.PartType.Ball
 	end
-	local sack = block(
-		"Sack",
-		Vector3.new(5, 5, 5),
-		origin * CFrame.new(0, 5.5, 1.5),
-		Color3.fromRGB(150, 110, 70),
-		sleigh
-	)
-	sack.Shape = Enum.PartType.Ball
 	sleigh.PrimaryPart = body
 
 	local zone = make("Part", {
@@ -594,6 +615,7 @@ function World.init()
 		end
 	end
 	folder = make("Folder", { Name = "World" }, Workspace)
+	MapProps.Preload()
 	buildGround()
 	buildWalls()
 	buildSpawn()

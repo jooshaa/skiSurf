@@ -53,14 +53,35 @@ local function buildSanta(): Model
 	end
 	local red = Color3.fromRGB(200, 40, 45)
 	local body = part("Sleigh", Vector3.new(10, 4, 18), Vector3.new(0, 0, 0), red)
-	part("Runners", Vector3.new(12, 1, 22), Vector3.new(0, -2.5, 0), Color3.fromRGB(240, 190, 60))
-	part(
-		"Sack",
-		Vector3.new(8, 8, 8),
-		Vector3.new(0, 5, 4),
-		Color3.fromRGB(150, 110, 70),
-		Enum.PartType.Ball
-	)
+	-- Сани: 3D-модель, загруженная сервером; если её нет, простые детали
+	local meshes = ReplicatedStorage:FindFirstChild(Config.Map.AssetFolder)
+	local template = meshes and meshes:FindFirstChild("Sleigh")
+	if template and template:IsA("MeshPart") then
+		local sleigh = template:Clone()
+		sleigh.Size *= Config.Map.FlyingSleighScale
+		sleigh.CFrame = CFrame.new(0, sleigh.Size.Y / 2 - 3, 0)
+			* CFrame.Angles(0, math.rad(Config.Map.Assets.Sleigh.yaw), 0)
+		sleigh.Anchored = true
+		sleigh.CanCollide = false
+		sleigh.CanQuery = false
+		sleigh.CanTouch = false
+		sleigh.Parent = model
+		body.Transparency = 1
+	else
+		part(
+			"Runners",
+			Vector3.new(12, 1, 22),
+			Vector3.new(0, -2.5, 0),
+			Color3.fromRGB(240, 190, 60)
+		)
+		part(
+			"Sack",
+			Vector3.new(8, 8, 8),
+			Vector3.new(0, 5, 4),
+			Color3.fromRGB(150, 110, 70),
+			Enum.PartType.Ball
+		)
+	end
 	part("Santa", Vector3.new(4, 5, 4), Vector3.new(0, 4.5, -4), red)
 	part(
 		"Head",
