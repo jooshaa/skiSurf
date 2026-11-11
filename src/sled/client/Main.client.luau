@@ -43,7 +43,7 @@ local camDirection = Vector3.new(0, 0, -1)
 local camFov = C.FovBase
 local camKick = 0 -- кивок камеры после приземления, затухает
 local camYaw = 0 -- игрок повернул камеру вокруг санок, рад
-local camPitch = 0
+local camPitch = C.OrbitPitchDefault
 local camZoom = 1
 local camIdle = 0 -- сколько секунд игрок не трогал камеру
 local clock = 0
@@ -177,7 +177,7 @@ end
 
 local function restart()
 	place(track.startS, 0)
-	camYaw, camPitch = 0, 0
+	camYaw = 0 -- высоту и зум игрок выбрал сам: их не сбрасываем
 	runTime = 0
 	blink = 0
 	Hud.Result(nil, nil)
@@ -315,7 +315,7 @@ local function updateCamera(dt: number, frame: CFrame)
 			camYaw *= math.exp(-C.OrbitReturnRate * dt)
 		end
 	end
-	local turned = math.abs(camYaw) + math.abs(camPitch)
+	local turned = math.abs(camYaw) -- высота камеры не считается «поворотом»: взгляд остаётся вперёд по трассе
 	local direction = CFrame.Angles(0, -camYaw, 0):VectorToWorldSpace(camDirection)
 
 	local distance = (C.Distance + state.v * C.DistancePerSpeed) * camZoom
@@ -430,7 +430,7 @@ UserInputService.InputBegan:Connect(function(input, processed)
 	elseif input.KeyCode == Enum.KeyCode.B then
 		autopilot = not autopilot
 	elseif input.KeyCode == Enum.KeyCode.C then
-		camYaw, camPitch, camZoom = 0, 0, 1 -- камера обратно за спину
+		camYaw, camPitch, camZoom = 0, C.OrbitPitchDefault, 1 -- камера обратно за спину
 	end
 end)
 

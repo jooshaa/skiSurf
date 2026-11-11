@@ -1,17 +1,19 @@
 --!strict
 -- BuildTrack: строит гору прототипа по линии трассы: полотно, обрыв под ним, цветные края
--- (синий = можно ехать, оранжевый = скоро тормозить, красный = поворот), чекпоинты, финиш, ели.
+-- (синий = можно ехать, оранжевый = скоро тормозить, красный = поворот), чекпоинты, финиш. Всё вокруг трассы строит Scenery.
 -- Всё без столкновений: санки едут по расчёту, а не по физике.
-local Lighting = game:GetService("Lighting")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerScriptService = game:GetService("ServerScriptService")
 local Workspace = game:GetService("Workspace")
 
 local SledConfig = require(ReplicatedStorage.SledConfig)
 local Track = require(ReplicatedStorage.Track)
+local Scenery = require(ServerScriptService.Scenery)
 
 local V = SledConfig.Visual
 
 local track = Track.Get()
+local floorY = Scenery.FloorY(track)
 
 local function block(
 	parent: Instance,
@@ -84,12 +86,14 @@ local function buildSurface(parent: Instance)
 		-- Обрыв под полотном: вертикальная скала, чтобы трасса читалась как гребень горы
 		local flatForward = Vector3.new(forward.X, 0, forward.Z).Unit
 		local flatRight = Vector3.new(-flatForward.Z, 0, flatForward.X)
-		local top = mid.Y - V.TrackThickness - V.CliffDrop
+		-- На наклонённом повороте внутренний край ниже оси: скала не должна вылезать над ним
+		local top = mid.Y - V.TrackThickness - V.CliffDrop - math.abs(right.Y) * width / 2
+		local height = math.clamp(top - floorY, V.CliffHeight, V.CliffMaxHeight)
 		block(
 			parent,
-			Vector3.new(width * V.CliffInset, V.CliffHeight, length),
+			Vector3.new(width * V.CliffInset, height, length),
 			CFrame.fromMatrix(
-				Vector3.new(mid.X, top - V.CliffHeight / 2, mid.Z),
+				Vector3.new(mid.X, top - height / 2, mid.Z),
 				flatRight,
 				Vector3.yAxis,
 				-flatForward
@@ -126,47 +130,6 @@ local function buildGate(parent: Instance, s: number, color: Color3, tiles: numb
 	end
 end
 
--- Ель на уступе у края трассы: мимо них видно, как быстро едешь
-local function buildPine(parent: Instance, s: number, side: number)
-	local pos, tangent, _, width = Track.At(track, s)
-	local flatForward = Vector3.new(tangent.X, 0, tangent.Z).Unit
-	local flatRight = Vector3.new(-flatForward.Z, 0, flatForward.X)
-	local base = pos + flatRight * side * (width / 2 + V.PineOffset + V.PineLedge / 2)
-	local frame = CFrame.fromMatrix(base, flatRight, Vector3.yAxis, -flatForward)
-
-	block(
-		parent,
-		Vector3.new(V.PineLedge, V.CliffHeight, V.PineLedge),
-		frame * CFrame.new(0, -V.CliffHeight / 2, 0),
-		V.Cliff,
-		Enum.Material.Slate
-	)
-	block(
-		parent,
-		Vector3.new(V.PineWidth / 5, V.PineHeight / 4, V.PineWidth / 5),
-		frame * CFrame.new(0, V.PineHeight / 8, 0),
-		V.Trunk,
-		Enum.Material.Wood
-	)
-	for quarter = 0, 3 do
-		local piece = Instance.new("CornerWedgePart")
-		piece.Size = Vector3.new(V.PineWidth / 2, V.PineHeight, V.PineWidth / 2)
-		-- Вершина углового клина в углу (+X, -Z): четыре четверти сходятся вершинами в центре
-		piece.CFrame = frame
-			* CFrame.new(0, V.PineHeight / 4 + V.PineHeight / 2, 0)
-			* CFrame.Angles(0, quarter * math.pi / 2, 0)
-			* CFrame.new(-V.PineWidth / 4, 0, V.PineWidth / 4)
-		piece.Color = V.Pine
-		piece.Material = Enum.Material.SmoothPlastic
-		piece.Anchored = true
-		piece.CanCollide = false
-		piece.CanTouch = false
-		piece.CanQuery = false
-		piece.CastShadow = false
-		piece.Parent = parent
-	end
-end
-
 local function buildSpawn(parent: Instance)
 	local frame = Track.Frame(track, track.startS, 0)
 	local spawn = Instance.new("SpawnLocation")
@@ -177,16 +140,6 @@ local function buildSpawn(parent: Instance)
 	spawn.Neutral = true
 	spawn.Duration = 0
 	spawn.Parent = parent
-end
-
-local function applyLighting()
-	Lighting.ClockTime = V.ClockTime
-	Lighting.Brightness = V.Brightness
-	local atmosphere = Lighting:FindFirstChildOfClass("Atmosphere") or Instance.new("Atmosphere")
-	atmosphere.Density = V.FogDensity
-	atmosphere.Color = V.FogColor
-	atmosphere.Decay = V.FogColor
-	atmosphere.Parent = Lighting
 end
 
 local model = Instance.new("Model")
@@ -200,13 +153,8 @@ for _, checkpoint in track.checkpoints do
 	buildGate(model, checkpoint, V.Checkpoint, 1)
 end
 buildGate(model, track.finishS, Color3.new(1, 1, 1), V.FinishTiles)
-local side = 1
-for s = V.PineEvery, track.length - V.PineEvery, V.PineEvery do
-	if Track.MaxKappa(track, s - V.PineClearTurn, V.PineClearTurn * 2) <= V.BrakeKappa then
-		buildPine(model, s, side)
-		side = -side
-	end
-end
+local shoulders = Scenery.Build(model, track, edgeColor)
 buildSpawn(model)
 model.Parent = Workspace
-applyLighting()
+-- Лес грузит модели из сети: сажаем его, когда гора и точка появления уже на месте
+task.spawn(Scenery.Plant, model, shoulders)

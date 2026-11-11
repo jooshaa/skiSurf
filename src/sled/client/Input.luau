@@ -188,6 +188,15 @@ function Input.Update(dt: number)
 			target += 1
 		end
 	end
+	-- E поднимает камеру, Q опускает (то же, что тянуть правой кнопкой мыши вверх-вниз)
+	if not typing() then
+		if UserInputService:IsKeyDown(Enum.KeyCode.E) then
+			cameraY += I.CameraKeySpeed * dt
+		end
+		if UserInputService:IsKeyDown(Enum.KeyCode.Q) then
+			cameraY -= I.CameraKeySpeed * dt
+		end
+	end
 	local rate = if target == 0 then I.KeyRampDown else I.KeyRampUp
 	local change = rate * dt
 	keySteer += math.clamp(target - keySteer, -change, change)

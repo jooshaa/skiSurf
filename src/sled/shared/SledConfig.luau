@@ -148,6 +148,7 @@ SledConfig.Input = {
 	DeadZone = 0.04,
 	KeyRampUp = 5, -- как быстро руль с клавиатуры доходит до упора, 1/с
 	KeyRampDown = 9,
+	CameraKeySpeed = 220, -- клавиши Q и E двигают камеру как сдвиг мыши на столько пикселей в секунду
 	CameraZone = 0.38, -- верхняя доля экрана: палец здесь крутит камеру, а не рулит
 }
 
@@ -177,8 +178,9 @@ SledConfig.Camera = {
 	LandKickDecay = 7,
 	FallFov = 60,
 	OrbitSpeed = 0.006, -- поворот камеры на пиксель сдвига пальца или мыши, рад
-	OrbitPitchMin = -0.15, -- насколько камеру можно опустить, рад
-	OrbitPitchMax = 1.2, -- и поднять
+	OrbitPitchDefault = 0.28, -- высота камеры на старте: трасса видна сверху, рад
+	OrbitPitchMin = -0.1, -- насколько камеру можно опустить, рад
+	OrbitPitchMax = 1.25, -- и поднять
 	OrbitFocusBlend = 0.5, -- при таком отклонении камера смотрит уже на санки, а не вперёд по трассе, рад
 	OrbitClearance = 0.15, -- пока камера почти сзади, она не опускается ниже снега позади, рад
 	OrbitReturnDelay = 2.5, -- через столько секунд без касания камера сама возвращается за спину
@@ -192,6 +194,7 @@ SledConfig.Visual = {
 	TrackThickness = 2,
 	SegmentSamples = 2, -- один блок полотна на столько шагов линии
 	CliffHeight = 70,
+	CliffMaxHeight = 2000, -- скала под трассой тянется до дна долины, но не выше этого
 	CliffInset = 0.96,
 	CliffDrop = 3,
 	EdgeWidth = 1.4,
@@ -199,10 +202,6 @@ SledConfig.Visual = {
 	StripeEvery = 2, -- смена оттенка снега через столько блоков: по полосам читается скорость
 	BrakeKappa = 1 / 75, -- поворот круче этого считается тормозным
 	BrakeLookahead = 150, -- за сколько студов до него край становится оранжевым
-	PineEvery = 72,
-	PineOffset = 9,
-	PineClearTurn = 200, -- ближе этого к крутому повороту ели не ставим: уступ залез бы на соседний виток
-	PineLedge = 14,
 	PineHeight = 26,
 	PineWidth = 12,
 	GateHeight = 16,
@@ -219,10 +218,6 @@ SledConfig.Visual = {
 	Pine = Color3.fromRGB(38, 110, 72),
 	Trunk = Color3.fromRGB(98, 70, 50),
 	Checkpoint = Color3.fromRGB(70, 210, 120),
-	ClockTime = 13.5,
-	Brightness = 2.6,
-	FogDensity = 0.28,
-	FogColor = Color3.fromRGB(205, 225, 250),
 }
 
 SledConfig.Sled = {
@@ -275,6 +270,112 @@ SledConfig.Assets = {
 		offset = Vector3.new(0, 0.2, 0), -- сдвиг от центра головы
 		hideHair = true, -- причёска и шапка торчат сквозь шлем: прячем их, пока шлем надет
 	},
+	Pine = {
+		mesh = "rbxassetid://80433606563396",
+		texture = "rbxassetid://99120275467953",
+		height = 26, -- высота ели в студах при масштабе 1
+	},
+	Rock = {
+		mesh = "rbxassetid://140505658057323",
+		texture = "rbxassetid://78869310967314",
+		width = 11, -- ширина валуна в студах при масштабе 1
+	},
+}
+
+-- Окружение трассы: на езду не влияет
+SledConfig.Scenery = {
+	Seed = 7, -- одно и то же число = один и тот же лес
+	-- Снежный склон от края трассы
+	ShoulderWidth = 46, -- на сколько студов склон уходит в сторону
+	ShoulderMin = 6, -- уже этого склон не строим (витки шпильки слишком близко)
+	ShoulderSlope = math.rad(22), -- наклон склона вниз
+	ShoulderThickness = 6,
+	ShoulderDrop = 0.15, -- склон чуть ниже полотна, чтобы поверхности не мерцали
+	Overlap = 0.6, -- запас длины блоков, чтобы не было щелей
+	NeighbourGuard = 12, -- точки трассы ближе этого по пути не проверяем: это тот же блок
+	InnerOverlap = 2, -- внутри шпильки склоны сходятся в центре с таким запасом: дыры не остаётся
+	LayerStagger = 0.12, -- соседние блоки склона и скалы сдвинуты по глубине, чтобы не мерцали
+	NeighbourMargin = 5, -- зазор до соседнего витка
+	SnowBankA = Color3.fromRGB(236, 242, 252),
+	SnowBankB = Color3.fromRGB(228, 236, 250),
+	-- Скала под склоном
+	SkirtSlope = math.rad(62),
+	SkirtLength = 160,
+	SkirtThickness = 10,
+	InnerKappa = 1 / 400, -- поворот круче этого: с внутренней стороны скалу не ставим
+	RockA = Color3.fromRGB(104, 112, 130),
+	RockB = Color3.fromRGB(86, 94, 114),
+	-- Дно долины
+	FloorDepth = 220, -- ниже самой низкой точки трассы
+	FloorTile = 2048,
+	FloorThickness = 8,
+	FloorMargin = 5000, -- дно выходит за трассу на столько студов
+	FloorColor = Color3.fromRGB(222, 232, 248),
+	-- Дальние вершины
+	PeakCount = 16,
+	PeakDistanceMin = 1500,
+	PeakDistanceMax = 3200,
+	PeakWidthMin = 1500,
+	PeakWidthMax = 2600,
+	PeakHeightMin = 1300,
+	PeakHeightMax = 2000, -- деталь не бывает выше 2048
+	PeakCap = 0.42, -- доля высоты под снежной шапкой
+	PeakCapWiden = 1.04,
+	PeakCapLift = 6,
+	PeakRock = Color3.fromRGB(92, 102, 126),
+	PeakSnow = Color3.fromRGB(240, 245, 255),
+	-- Лес и валуны на склонах
+	TreeMinShoulder = 16, -- на склоне уже этого ничего не растёт
+	TreeShadows = true,
+	RockShadows = false,
+	TreeChance = 0.24, -- шанс ели на один блок склона
+	TreeEdgeGap = 7, -- не ближе этого к краю трассы
+	TreeOuterGap = 4,
+	TreeScaleMin = 0.6,
+	TreeScaleMax = 1.35,
+	TreeSink = 1.5, -- ствол утоплен в снег
+	RockChance = 0.07,
+	RockScaleMin = 0.5,
+	RockScaleMax = 1.4,
+	RockSink = 1.5,
+	RockBlockHeight = 0.6, -- запасной валун из блока: высота и глубина в долях ширины
+	RockBlockDepth = 0.8,
+	-- Флажки
+	FlagEvery = 48,
+	FlagOffset = 1.5, -- от края трассы наружу
+	FlagHeight = 6,
+	FlagSink = 4, -- столбик уходит в снег на столько
+	FlagPole = 0.35,
+	FlagSize = Vector2.new(2.4, 1.5),
+	FlagPoleColor = Color3.fromRGB(60, 64, 76),
+	-- Свет и небо
+	ClockTime = 10.2, -- утро: длинные синие тени поперёк трассы
+	Latitude = 38,
+	Brightness = 2.1,
+	Ambient = Color3.fromRGB(70, 82, 110),
+	OutdoorAmbient = Color3.fromRGB(128, 148, 190),
+	SunTint = Color3.fromRGB(255, 244, 226),
+	ShadowSoftness = 0.25,
+	EnvironmentDiffuse = 1,
+	EnvironmentSpecular = 0.4,
+	Exposure = -0.35, -- снег не должен выгорать в белое: на нём видны полосы и тени
+	FogDensity = 0.15,
+	FogOffset = 0.15,
+	FogColor = Color3.fromRGB(205, 225, 250),
+	FogDecay = Color3.fromRGB(150, 185, 235),
+	FogGlare = 0.2,
+	FogHaze = 1.2,
+	Saturation = 0.12,
+	Contrast = 0.06,
+	Tint = Color3.fromRGB(255, 252, 246),
+	BloomIntensity = 0.25,
+	BloomSize = 24,
+	BloomThreshold = 2.2,
+	SunRays = 0.06,
+	SunRaysSpread = 0.6,
+	CloudCover = 0.58,
+	CloudDensity = 0.45,
+	CloudColor = Color3.fromRGB(255, 255, 255),
 }
 
 -- Снег из-под санок
