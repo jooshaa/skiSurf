@@ -9,6 +9,7 @@ local Workspace = game:GetService("Workspace")
 local SledConfig = require(ReplicatedStorage.SledConfig)
 local Track = require(ReplicatedStorage.Track)
 local Scenery = require(ServerScriptService.Scenery)
+local Peaks = require(ServerScriptService.Peaks)
 local TrackMesh = require(ServerScriptService.TrackMesh)
 
 local V = SledConfig.Visual
@@ -172,6 +173,11 @@ task.spawn(function()
 			"BuildTrack: гладкая поверхность не построилась, собираю из блоков",
 			shoulders
 		)
+	end
+	-- Дальние горы: сеткой, а если не вышло, из клиньев
+	local peaksOk, peaksBuilt = pcall(Peaks.Build, model, track)
+	if not peaksOk or not peaksBuilt then
+		Scenery.PeakParts(model, track)
 	end
 	if ok and shoulders then
 		Scenery.Plant(model, shoulders)

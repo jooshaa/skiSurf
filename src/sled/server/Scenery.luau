@@ -232,15 +232,26 @@ function Scenery.ShoulderParts(parent: Instance, track: Track.Data): { Shoulder 
 	return shoulders
 end
 
-local function buildFloor(parent: Instance, track: Track.Data, floorY: number): (Vector3, number)
+-- Середина долины и расстояние от неё до самой дальней точки трассы
+function Scenery.Bounds(track: Track.Data): (Vector3, number)
 	local minX, maxX, minZ, maxZ = math.huge, -math.huge, math.huge, -math.huge
 	for i = 1, track.count do
 		local pos = track.pos[i]
 		minX, maxX = math.min(minX, pos.X), math.max(maxX, pos.X)
 		minZ, maxZ = math.min(minZ, pos.Z), math.max(maxZ, pos.Z)
 	end
-	local centre = Vector3.new((minX + maxX) / 2, floorY, (minZ + maxZ) / 2)
-	local radius = math.max(maxX - minX, maxZ - minZ) / 2
+	local centre = Vector3.new((minX + maxX) / 2, Scenery.FloorY(track), (minZ + maxZ) / 2)
+	local radius = 0
+	for i = 1, track.count do
+		local pos = track.pos[i]
+		radius = math.max(radius, math.sqrt((pos.X - centre.X) ^ 2 + (pos.Z - centre.Z) ^ 2))
+	end
+	return centre, radius
+end
+
+local function buildFloor(parent: Instance, track: Track.Data)
+	local centre, radius = Scenery.Bounds(track)
+	local floorY = centre.Y
 	local half = math.ceil((radius + S.FloorMargin) / S.FloorTile)
 	for ix = -half, half - 1 do
 		for iz = -half, half - 1 do
@@ -257,11 +268,12 @@ local function buildFloor(parent: Instance, track: Track.Data, floorY: number): 
 			)
 		end
 	end
-	return centre, radius
 end
 
--- Дальние вершины кольцом вокруг долины: тёмная скала и снежная шапка
-local function buildPeaks(parent: Instance, random: Random, centre: Vector3, radius: number)
+-- Дальние вершины из клиньев: запасной вариант (основной строит Peaks)
+function Scenery.PeakParts(parent: Instance, track: Track.Data)
+	local centre, radius = Scenery.Bounds(track)
+	local random = Random.new(S.Seed)
 	for i = 1, S.PeakCount do
 		local angle = (i + random:NextNumber(-0.3, 0.3)) / S.PeakCount * math.pi * 2
 		local distance = radius + random:NextNumber(S.PeakDistanceMin, S.PeakDistanceMax)
@@ -448,8 +460,7 @@ end
 
 -- Всё вокруг, что строится сразу, без ожидания сети
 function Scenery.Build(parent: Instance, track: Track.Data, colorAt: (number) -> Color3)
-	local centre, radius = buildFloor(parent, track, Scenery.FloorY(track))
-	buildPeaks(parent, Random.new(S.Seed), centre, radius)
+	buildFloor(parent, track)
 	buildFlags(parent, track, colorAt)
 	applyLighting()
 end

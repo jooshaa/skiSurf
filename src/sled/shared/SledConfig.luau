@@ -45,9 +45,9 @@ SledConfig.Physics = {
 	MinSpeedAccel = 40,
 	InsideLimit = 0.4,
 	BrakeMinSpeed = 6,
-	TurnRate = 1.6,
-	SteerResponse = 9,
-	Grip = 6,
+	TurnRate = 1.85,
+	SteerResponse = 18,
+	Grip = 7,
 	AlignRate = 3,
 	MaxSlip = 0.6,
 	MaxSlide = 1.2,
@@ -146,7 +146,7 @@ SledConfig.Input = {
 	SteerRange = 0.11, -- сдвиг пальца на эту долю ширины экрана = полный руль
 	SteerCurve = 1.4, -- степень кривой: больше = точнее около центра
 	DeadZone = 0.04,
-	KeyRampUp = 5, -- как быстро руль с клавиатуры доходит до упора, 1/с
+	KeyRampUp = 8, -- как быстро руль с клавиатуры доходит до упора, 1/с
 	KeyRampDown = 9,
 	CameraKeySpeed = 220, -- клавиши Q и E двигают камеру как сдвиг мыши на столько пикселей в секунду
 	CameraZone = 0.38, -- верхняя доля экрана: палец здесь крутит камеру, а не рулит
@@ -359,12 +359,12 @@ SledConfig.Scenery = {
 	EnvironmentDiffuse = 1,
 	EnvironmentSpecular = 0.4,
 	Exposure = -0.35, -- снег не должен выгорать в белое: на нём видны полосы и тени
-	FogDensity = 0.15,
-	FogOffset = 0.15,
+	FogDensity = 0.1, -- дальние горы видны сквозь дымку, но их появление на слабой графике скрыто
+	FogOffset = 0.25,
 	FogColor = Color3.fromRGB(205, 225, 250),
 	FogDecay = Color3.fromRGB(150, 185, 235),
 	FogGlare = 0.2,
-	FogHaze = 1.2,
+	FogHaze = 0.9,
 	Saturation = 0.12,
 	Contrast = 0.06,
 	Tint = Color3.fromRGB(255, 252, 246),
@@ -376,6 +376,46 @@ SledConfig.Scenery = {
 	CloudCover = 0.58,
 	CloudDensity = 0.45,
 	CloudColor = Color3.fromRGB(255, 255, 255),
+}
+
+-- Дальние горы вокруг долины (Peaks)
+SledConfig.Peaks = {
+	Seed = 11,
+	Variants = 4, -- разных форм вершин
+	Count = 20, -- гор вокруг долины
+	Rings = 8, -- колец точек от макушки к подножию
+	Segments = 18, -- точек в кольце
+	Radius = 1000, -- полуширина подножия (деталь не бывает больше 2048)
+	Height = 1900,
+	Profile = 1.25, -- больше = острее пик и шире подножие
+	Jitter = 0.3, -- сдвиг точек по кругу, доля шага
+	Rough = 0.1, -- неровность высоты граней, доля
+	Ridge = 0.9, -- насколько отроги длиннее впадин
+	RidgeCount = 1.6, -- сколько отрогов по кругу
+	RidgeMin = 0.45,
+	SnowLine = 0.34, -- выше этой доли высоты лежит снег
+	SnowRough = 0.05, -- неровность границы снега, доля высоты
+	ToneSteps = 3, -- оттенков между двумя цветами
+	RockA = Color3.fromRGB(84, 96, 128),
+	RockB = Color3.fromRGB(112, 124, 152),
+	SnowA = Color3.fromRGB(244, 248, 255),
+	SnowB = Color3.fromRGB(214, 228, 250),
+	ScaleMin = 0.5,
+	ScaleMax = 1,
+	TallMin = 0.7, -- дополнительное сжатие по высоте
+	TallMax = 1,
+	Spread = 0.35, -- разброс по кругу, доля шага
+	DistanceMin = 250, -- от дальней точки трассы до подножия
+	DistanceMax = 1500,
+	Sink = 40, -- подножие утоплено ниже дна долины
+	-- Ближние горы вдоль трассы (видны и на слабой графике)
+	NearEvery = 300, -- одна гора на столько студов трассы, стороны чередуются
+	NearLateralMin = 110, -- от оси трассы до ближнего края подножия
+	NearLateralMax = 260,
+	NearScaleMin = 0.28,
+	NearScaleMax = 0.5,
+	NearRiseMin = 70, -- макушка выше трассы на столько
+	NearRiseMax = 280,
 }
 
 -- Гладкая поверхность горы (TrackMesh)
@@ -401,12 +441,12 @@ SledConfig.Mesh = {
 
 -- Снег из-под санок
 SledConfig.Fx = {
-	SnowColor = Color3.fromRGB(205, 220, 244), -- чуть голубее снега, иначе белое на белом не видно
+	SnowColor = Color3.fromRGB(226, 236, 252), -- чуть голубее снега, иначе белое на белом не видно
 	PuffStart = 0.35, -- начальный размер облачка в долях конечного
-	PuffTransparency = 0, -- прозрачность облачка в начале (0 = плотное)
+	PuffTransparency = 0.25, -- прозрачность облачка в начале (0 = плотное)
 	Inherit = 0.6, -- доля скорости санок, которую получает снежная пыль (иначе она сразу остаётся позади)
 	PuffGravity = 18,
-	PuffGlow = 0,
+	PuffGlow = 0.55,
 	Spread = 22,
 	EmitHeight = 0.3,
 	RearTilt = 0.9, -- пыль из-под полозьев летит назад под этим углом, рад
