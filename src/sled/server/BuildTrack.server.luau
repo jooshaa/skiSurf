@@ -180,9 +180,9 @@ task.spawn(function()
 		Scenery.PeakParts(model, track)
 	end
 	if ok and shoulders then
-		Scenery.Plant(model, shoulders)
+		Scenery.Plant(model, track, shoulders)
 	else
 		buildSurface(model, true, false)
-		Scenery.Plant(model, Scenery.ShoulderParts(model, track))
+		Scenery.Plant(model, track, Scenery.ShoulderParts(model, track))
 	end
 end)

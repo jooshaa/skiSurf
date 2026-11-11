@@ -31,6 +31,13 @@ export type Physics = {
 	AirGravity: number, -- падение в полёте
 	AirTurn: number, -- доля руления в воздухе
 	AirThreshold: number, -- выше этой высоты над снегом санки считаются в полёте
+	EdgeInset: number, -- санки останавливаются у борта за столько студов до края полотна
+	BankHit: number, -- доля скорости, которую съедает удар в борт под прямым углом
+	BankDrag: number, -- как быстро тает скорость, пока санки трутся о борт, 1/с
+	BankShock: number, -- доля скорости, которую съедает само касание борта
+	BankHeading: number, -- круче этого угла нос в борт не смотрит, даже если туда рулят, рад
+	BankPush: number, -- под каким углом борт отталкивает санки обратно, рад
+	BankRegrip: number, -- повторное касание раньше этого времени не считается новым ударом, с
 }
 
 local SledConfig = {}
@@ -57,6 +64,13 @@ SledConfig.Physics = {
 	AirGravity = 110,
 	AirTurn = 0.35,
 	AirThreshold = 0.4,
+	EdgeInset = 2,
+	BankHit = 0.9,
+	BankDrag = 3,
+	BankShock = 0.4,
+	BankHeading = 0.5,
+	BankPush = 0.12,
+	BankRegrip = 0.8,
 } :: Physics
 
 -- Три характера для сравнения (кнопки 1, 2, 3 в панели настройки)
@@ -94,32 +108,51 @@ SledConfig.Tunable = {
 SledConfig.Track = {
 	Step = 4, -- шаг расчёта линии трассы
 	SmoothLength = 56, -- на какой длине сглаживаются стыки кусков
-	Origin = Vector3.new(0, 1400, 0), -- вершина горы
+	Origin = Vector3.new(0, 2600, 0), -- вершина горы
 	BankGain = 10, -- наклон полотна в повороте: кривизна * BankGain
 	MaxBank = 0.3,
 	StartS = 24, -- где стоят санки на старте
-	FinishBeforeEnd = 220, -- финишная черта за столько студов до конца полотна
+	FinishBeforeEnd = 240, -- финишная черта за столько студов до конца полотна
+	MinGap = 30, -- между краями разных витков трассы остаётся не меньше этого (проверяет тест)
+	GapSkip = 400, -- точки ближе этого по пути считаются одним витком
 	Pieces = {
-		{ length = 60, turn = 0, slope = 4, width = 60 },
-		{ length = 300, turn = 0, slope = 16, width = 56 },
-		{ length = 260, turn = 50, slope = 14, width = 52 },
-		{ length = 260, turn = -60, slope = 14, width = 52 },
-		{ length = 200, turn = 0, slope = 18, width = 48, checkpoint = true },
-		{ length = 200, turn = 70, slope = 13, width = 44 },
-		{ length = 200, turn = -70, slope = 13, width = 44 },
-		{ length = 260, turn = 0, slope = 20, width = 48 },
-		{ length = 120, turn = 0, slope = 14, width = 52, checkpoint = true },
-		{ length = 100, turn = 170, slope = 6, width = 50 }, -- первая шпилька: без тормоза не пройти
-		{ length = 180, turn = 0, slope = 16, width = 46, checkpoint = true },
-		{ length = 100, turn = -170, slope = 6, width = 50 }, -- вторая шпилька
-		{ length = 220, turn = 0, slope = 22, width = 48, checkpoint = true },
-		{ length = 60, turn = 0, slope = -14, width = 56 }, -- губа трамплина
-		{ length = 160, turn = 0, slope = 32, width = 64 }, -- приземление
-		{ length = 400, turn = 120, slope = 14, width = 50, checkpoint = true },
-		{ length = 120, turn = -60, slope = 12, width = 42 },
-		{ length = 120, turn = 60, slope = 12, width = 42 },
-		{ length = 300, turn = 0, slope = 18, width = 56, checkpoint = true },
-		{ length = 220, turn = 0, slope = 0, width = 70 }, -- выкат после финиша
+		{ length = 80, turn = 0, slope = 4, width = 84 },
+		{ length = 320, turn = 0, slope = 16, width = 78 },
+		{ length = 300, turn = 50, slope = 14, width = 72 },
+		{ length = 300, turn = -60, slope = 14, width = 72 },
+		{ length = 240, turn = 0, slope = 18, width = 68, checkpoint = true },
+		{ length = 240, turn = 70, slope = 13, width = 64 },
+		{ length = 240, turn = -70, slope = 13, width = 64 },
+		{ length = 280, turn = 0, slope = 20, width = 68 },
+		{ length = 140, turn = 0, slope = 18, width = 66, checkpoint = true },
+		{ length = 105, turn = 168, slope = 8, width = 46 }, -- первая шпилька: без тормоза в борт
+		{ length = 240, turn = 0, slope = 20, width = 58, checkpoint = true },
+		{ length = 105, turn = -168, slope = 8, width = 46 }, -- вторая шпилька
+		{ length = 240, turn = 0, slope = 22, width = 68, checkpoint = true },
+		{ length = 60, turn = 0, slope = -14, width = 76 }, -- губа трамплина
+		{ length = 180, turn = 0, slope = 32, width = 88 }, -- приземление
+		{ length = 440, turn = 120, slope = 14, width = 70, checkpoint = true },
+		{ length = 150, turn = -60, slope = 12, width = 60 },
+		{ length = 150, turn = 60, slope = 12, width = 60 },
+		-- Вторая половина горы
+		{ length = 320, turn = 0, slope = 19, width = 76, checkpoint = true }, -- разгон
+		{ length = 360, turn = -110, slope = 12, width = 70 }, -- длинная левая дуга
+		{ length = 200, turn = 0, slope = 17, width = 66 },
+		{ length = 130, turn = 45, slope = 12, width = 60, checkpoint = true }, -- слалом
+		{ length = 130, turn = -45, slope = 12, width = 60 },
+		{ length = 130, turn = 45, slope = 12, width = 60 },
+		{ length = 130, turn = -45, slope = 12, width = 60 },
+		{ length = 260, turn = 0, slope = 21, width = 70, checkpoint = true },
+		{ length = 50, turn = 0, slope = -12, width = 76 }, -- второй трамплин
+		{ length = 150, turn = 0, slope = 30, width = 88 },
+		{ length = 300, turn = 90, slope = 16, width = 70, checkpoint = true },
+		{ length = 105, turn = -168, slope = 8, width = 46 }, -- третья шпилька
+		{ length = 240, turn = 0, slope = 20, width = 58, checkpoint = true },
+		{ length = 105, turn = 168, slope = 8, width = 46 }, -- четвёртая шпилька
+		{ length = 300, turn = 0, slope = 20, width = 70, checkpoint = true },
+		{ length = 400, turn = -90, slope = 14, width = 72 },
+		{ length = 360, turn = 0, slope = 18, width = 80, checkpoint = true }, -- финишная прямая
+		{ length = 240, turn = 0, slope = 0, width = 90 }, -- выкат после финиша
 	} :: { Piece },
 }
 
@@ -176,6 +209,7 @@ SledConfig.Camera = {
 	ShakeCurve = 2, -- степень: дрожь появляется только ближе к полной скорости
 	LandKick = 0.07, -- кивок камеры при приземлении, рад
 	LandKickDecay = 7,
+	BankKick = 0.05, -- кивок камеры при ударе о снежный борт, рад
 	FallFov = 60,
 	OrbitSpeed = 0.006, -- поворот камеры на пиксель сдвига пальца или мыши, рад
 	OrbitPitchDefault = 0.28, -- высота камеры на старте: трасса видна сверху, рад
@@ -197,8 +231,8 @@ SledConfig.Visual = {
 	CliffMaxHeight = 2000, -- скала под трассой тянется до дна долины, но не выше этого
 	CliffInset = 0.96,
 	CliffDrop = 3,
-	EdgeWidth = 1.4,
-	EdgeHeight = 0.5,
+	EdgeWidth = 2.2,
+	EdgeHeight = 1.1,
 	StripeEvery = 2, -- смена оттенка снега через столько блоков: по полосам читается скорость
 	BrakeKappa = 1 / 75, -- поворот круче этого считается тормозным
 	BrakeLookahead = 150, -- за сколько студов до него край становится оранжевым
@@ -275,11 +309,73 @@ SledConfig.Assets = {
 		texture = "rbxassetid://99120275467953",
 		height = 26, -- высота ели в студах при масштабе 1
 	},
+	Yeti = {
+		mesh = "rbxassetid://136535407749915",
+		texture = "rbxassetid://96111302308302",
+		height = 17, -- рост йети в студах
+		yaw = 0, -- поворот модели, чтобы лицо смотрело на трассу, градусов
+	},
 	Rock = {
 		mesh = "rbxassetid://140505658057323",
 		texture = "rbxassetid://78869310967314",
 		width = 11, -- ширина валуна в студах при масштабе 1
 	},
+}
+
+-- Указатели поворота: щиты со стрелками на внешней стороне дуги
+SledConfig.Signs = {
+	Kappa = 1 / 360, -- поворот круче этого получает указатели
+	Every = 44, -- шаг между щитами вдоль трассы
+	MinShoulder = 12, -- на склоне уже этого щит не ставим
+	Offset = 5, -- от края трассы наружу
+	Post = 0.5,
+	PostHeight = 3.5, -- от снега до низа щита
+	Sink = 4, -- столб уходит в снег
+	Board = Vector3.new(8, 4, 0.4),
+	Arrows = 2, -- стрелок на щите
+	ArrowGap = 3.2,
+	ArrowRun = 1.5, -- ширина стрелки
+	ArrowRise = 1.4, -- полувысота стрелки
+	ArrowThick = 0.7,
+	ArrowDepth = 0.3,
+	PostColor = Color3.fromRGB(60, 64, 76),
+	BoardColor = Color3.fromRGB(255, 205, 40),
+	BoardSharp = Color3.fromRGB(235, 60, 60), -- тормозной поворот
+	ArrowColor = Color3.fromRGB(24, 26, 34),
+}
+
+-- Йети у трассы
+SledConfig.Yeti = {
+	At = { 0.1, 0.27, 0.45, 0.6, 0.78, 0.93 }, -- где стоят: доля пути от старта до финиша
+	MinShoulder = 20,
+	Search = 160, -- ищем подходящий склон не дальше этого от точки
+	Offset = 11, -- от края трассы
+	Clear = 16, -- ближе этого к йети не растут ели и не лежат валуны
+	Scale = 1,
+	Sink = 0.8,
+}
+
+-- Метель: участки трассы, где снег валит стеной и дальше хуже видно
+SledConfig.Blizzard = {
+	Zones = { { from = 0.3, to = 0.4 }, { from = 0.64, to = 0.75 } }, -- доли пути до финиша
+	Fade = 0.025, -- метель нарастает и стихает на такой доле пути
+	Rate = 3, -- во сколько раз больше снежинок
+	Wind = Vector3.new(34, -6, 10), -- ветер в метель (добавляется к обычному)
+	FogDensity = 0.62,
+	FogOffset = 0,
+	FogHaze = 2.6,
+	Smooth = 2.5, -- как быстро меняется погода, 1/с
+	-- Порывы: крупные хлопья, которые несёт ветром поперёк экрана
+	GustRate = 700, -- хлопьев в секунду в разгар метели
+	GustSize = 1.5,
+	GustLifetime = 1.1,
+	GustSpeed = 14,
+	GustPush = 2.2, -- во сколько раз ветер сильнее толкает крупные хлопья
+	GustTransparency = 0.35,
+	GustVary = 0.7, -- самые быстрые и короткие хлопья: доля от обычных
+	GustFade = 0.2, -- доля жизни хлопья на появление и на исчезновение
+	TouchRate = 2, -- на телефоне в метель снежинок больше только во столько раз
+	Epsilon = 0.005, -- меньшее изменение силы метели не применяется
 }
 
 -- Окружение трассы: на езду не влияет
@@ -426,6 +522,7 @@ SledConfig.Mesh = {
 	StripeLength = 18, -- длина полосы оттенка на полотне: по полосам читается скорость
 	EdgeInnerLift = 0.06, -- внутренняя кромка цветного края чуть выше снега
 	InnerGap = 1, -- внутри шпильки склоны сходятся к центру поворота, не доходя до него на столько
+	MeasureYield = 150, -- через столько сечений расчёт склонов уступает кадр серверу
 	ReachSmooth = 3, -- сглаживание ширины склона, сечений в каждую сторону
 	MidShare = 0.45, -- где у склона перегиб, доля ширины
 	NearSlope = math.rad(9), -- наклон склона до перегиба (после: Scenery.ShoulderSlope)
@@ -443,10 +540,10 @@ SledConfig.Mesh = {
 SledConfig.Fx = {
 	SnowColor = Color3.fromRGB(226, 236, 252), -- чуть голубее снега, иначе белое на белом не видно
 	PuffStart = 0.35, -- начальный размер облачка в долях конечного
-	PuffTransparency = 0.25, -- прозрачность облачка в начале (0 = плотное)
+	PuffTransparency = 0.6, -- прозрачность облачка в начале (0 = плотное)
 	Inherit = 0.6, -- доля скорости санок, которую получает снежная пыль (иначе она сразу остаётся позади)
 	PuffGravity = 18,
-	PuffGlow = 0.55,
+	PuffGlow = 0.15,
 	Spread = 22,
 	EmitHeight = 0.3,
 	RearTilt = 0.9, -- пыль из-под полозьев летит назад под этим углом, рад
@@ -470,6 +567,7 @@ SledConfig.Fx = {
 	LandSpread = 80,
 	LandCount = 40,
 	LandMinAir = 0.2, -- полёт короче этого приземлением не считается, секунд
+	BankPuff = 0.6, -- доля облака приземления при ударе о борт
 	LandFullAir = 0.9, -- полёт этой длины даёт полное облако и полный кивок камеры
 	TrailWidth = 0.35,
 	TrailHeight = 0.06,
@@ -503,7 +601,7 @@ SledConfig.Hud = {
 
 SledConfig.Bot = {
 	LookTime = 1.3, -- бот смотрит вперёд на столько секунд пути
-	BrakeMargin = 0.8, -- тормозит, если поворот требует больше этой доли TurnRate
+	BrakeMargin = 0.9, -- тормозит, если поворот требует больше этой доли TurnRate
 	CenterGain = 0.03,
 	MaxAngle = 0.5, -- под каким углом к трассе бот возвращается к середине
 	MaxFalls = 50,

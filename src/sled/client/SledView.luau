@@ -3,6 +3,7 @@
 -- грузится или если не загрузилась, простая из блоков), снег из-под полозьев, шлейф в повороте,
 -- следы на снегу, облако при приземлении и снегопад вокруг игрока. Только картинка.
 local AssetService = game:GetService("AssetService")
+local Lighting = game:GetService("Lighting")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
@@ -13,6 +14,8 @@ local SledConfig = require(ReplicatedStorage.SledConfig)
 local S = SledConfig.Sled
 local F = SledConfig.Fx
 local W = SledConfig.Snowfall
+local Z = SledConfig.Blizzard
+local SC = SledConfig.Scenery
 
 local PUFF = "rbxasset://textures/particles/smoke_main.dds" -- встроенная текстура движка
 
@@ -27,6 +30,9 @@ local carveRight: ParticleEmitter
 local landing: ParticleEmitter
 local trails: { Trail } = {}
 local snowCloud: Part
+local snowEmitter: ParticleEmitter? = nil
+local gustEmitter: ParticleEmitter? = nil
+local shownWeather = 0
 local shownHidden = false
 
 local function basePart(part: BasePart)
@@ -286,7 +292,44 @@ local function buildSnowfall()
 	snow.Rotation = NumberRange.new(0, 360)
 	snow.Acceleration = W.Wind
 	snow.Parent = snowCloud
+	snowEmitter = snow
+
+	local gust = snow:Clone()
+	gust.Name = "Gust"
+	gust.Rate = 0
+	gust.Lifetime = NumberRange.new(Z.GustLifetime * Z.GustVary, Z.GustLifetime)
+	gust.Speed = NumberRange.new(Z.GustSpeed * Z.GustVary, Z.GustSpeed)
+	gust.Size = NumberSequence.new(Z.GustSize)
+	gust.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 1),
+		NumberSequenceKeypoint.new(Z.GustFade, Z.GustTransparency),
+		NumberSequenceKeypoint.new(1 - Z.GustFade, Z.GustTransparency),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	gust.Acceleration = Z.Wind * Z.GustPush
+	gust.Parent = snowCloud
+	gustEmitter = gust
 	snowCloud.Parent = Workspace
+end
+
+-- Погода: 0 = обычный снежок, 1 = метель. Меняет только картинку у этого игрока.
+function SledView.SetWeather(strength: number)
+	if not snowEmitter or not gustEmitter or math.abs(strength - shownWeather) < Z.Epsilon then
+		return
+	end
+	shownWeather = strength
+	local touch = UserInputService.TouchEnabled
+	local share = if touch then W.TouchRateShare else 1
+	local more = if touch then Z.TouchRate else Z.Rate
+	gustEmitter.Rate = Z.GustRate * share * strength
+	snowEmitter.Rate = W.Rate * share * (1 + (more - 1) * strength)
+	snowEmitter.Acceleration = W.Wind + Z.Wind * strength
+	local atmosphere = Lighting:FindFirstChildOfClass("Atmosphere")
+	if atmosphere then
+		atmosphere.Density = SC.FogDensity + (Z.FogDensity - SC.FogDensity) * strength
+		atmosphere.Offset = SC.FogOffset + (Z.FogOffset - SC.FogOffset) * strength
+		atmosphere.Haze = SC.FogHaze + (Z.FogHaze - SC.FogHaze) * strength
+	end
 end
 
 function SledView.Create()

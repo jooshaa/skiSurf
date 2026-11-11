@@ -21,6 +21,7 @@ local R = SledConfig.Run
 local C = SledConfig.Camera
 local S = SledConfig.Sled
 local F = SledConfig.Fx
+local Z = SledConfig.Blizzard
 
 local player = Players.LocalPlayer
 local track = Track.Get()
@@ -49,6 +50,8 @@ local camIdle = 0 -- сколько секунд игрок не трогал к
 local clock = 0
 
 local airTime = 0 -- сколько длится текущий полёт
+local weather = 0 -- сила метели вокруг игрока, 0..1
+local onBank = false -- санки уже трутся о борт: удар показываем один раз
 local lastPosition: Vector3? = nil
 local velocity = Vector3.zero -- скорость санок в мире, для снегопада
 local riderPitch = 0
@@ -234,6 +237,12 @@ local function updateRun(dt: number, steer: number, brake: boolean)
 		end
 		airTime = 0
 	end
+	-- Удар о снежный борт: камера кивает, из-под санок летит снег
+	if state.bank and not onBank then
+		camKick = math.max(camKick, C.BankKick)
+		SledView.Land(F.BankPuff)
+	end
+	onBank = state.bank
 	if state.fell then
 		startFall()
 	elseif state.s >= track.finishS then
@@ -412,8 +421,25 @@ local function onFrame(frameTime: number)
 	updateCamera(dt, frame)
 	local sliding = (mode == "run" or mode == "finish") and not state.airborne
 	local hidden = blink > 0 and math.floor(blink * R.BlinkRate) % 2 == 0
-	SledView.Update(state.v, state.heading - state.slide, steer, brake, sliding, velocity, hidden)
-	Hud.Update(state.v, steer, brake, state.s / track.finishS, runTime)
+	SledView.Update(
+		state.v,
+		state.heading - state.slide,
+		steer,
+		brake or state.bank,
+		sliding,
+		velocity,
+		hidden
+	)
+	-- Метель на своих участках трассы нарастает и стихает плавно
+	local share = state.s / track.finishS
+	local wanted = 0
+	for _, zone in Z.Zones do
+		local inside = math.min(share - zone.from, zone.to - share) / Z.Fade
+		wanted = math.max(wanted, math.clamp(inside, 0, 1))
+	end
+	weather += (wanted - weather) * (1 - math.exp(-Z.Smooth * dt))
+	SledView.SetWeather(weather)
+	Hud.Update(state.v, steer, brake, share, runTime)
 end
 
 SledView.Create()

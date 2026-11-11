@@ -12,6 +12,8 @@ local Track = require(ReplicatedStorage.Track)
 local V = SledConfig.Visual
 local S = SledConfig.Scenery
 local M = SledConfig.Mesh
+local G = SledConfig.Signs
+local Y = SledConfig.Yeti
 
 local Scenery = {}
 
@@ -23,6 +25,8 @@ export type Shoulder = {
 	outer: Vector3,
 	width: number,
 	weight: number,
+	s: number, -- путь вдоль трассы
+	side: number, -- -1 слева от трассы, 1 справа
 }
 
 local function block(
@@ -199,6 +203,8 @@ function Scenery.ShoulderParts(parent: Instance, track: Track.Data): { Shoulder 
 					outer = outer,
 					width = run,
 					weight = 1,
+					s = s + span / 2,
+					side = side,
 				})
 
 				-- Скала под склоном: только там, где до соседнего витка есть место
@@ -298,7 +304,22 @@ function Scenery.PeakParts(parent: Instance, track: Track.Data)
 	end
 end
 
-local function buildTrees(parent: Instance, random: Random, shoulders: { Shoulder })
+local function buildTrees(
+	parent: Instance,
+	random: Random,
+	shoulders: { Shoulder },
+	avoid: { Vector3 }
+)
+	-- Рядом с йети ничего не растёт: его не должно закрывать
+	local function free(at: CFrame): boolean
+		for _, point in avoid do
+			if (point - at.Position).Magnitude < Y.Clear then
+				return false
+			end
+		end
+		return true
+	end
+
 	local pineAsset = SledConfig.Assets.Pine
 	local rockAsset = SledConfig.Assets.Rock
 	local pine = loadMesh(pineAsset.mesh, pineAsset.texture)
@@ -322,6 +343,9 @@ local function buildTrees(parent: Instance, random: Random, shoulders: { Shoulde
 			if random:NextNumber() < S.TreeChance * shoulder.weight then
 				local scale = random:NextNumber(S.TreeScaleMin, S.TreeScaleMax)
 				local at = spot()
+				if not free(at) then
+					continue
+				end
 				if pine then
 					local tree = pine:Clone()
 					tree.Size *= pineAsset.height * scale / tree.Size.Y
@@ -353,6 +377,9 @@ local function buildTrees(parent: Instance, random: Random, shoulders: { Shoulde
 			if random:NextNumber() < S.RockChance * shoulder.weight then
 				local scale = random:NextNumber(S.RockScaleMin, S.RockScaleMax)
 				local at = spot()
+				if not free(at) then
+					continue
+				end
 				if rock then
 					local boulder = rock:Clone()
 					boulder.Size *= rockAsset.width * scale / math.max(
@@ -458,6 +485,120 @@ local function applyLighting()
 	clouds.Parent = terrain
 end
 
+-- Ближайший к точке s склон с нужной стороны, на котором хватает места
+local function shoulderNear(
+	shoulders: { Shoulder },
+	s: number,
+	side: number,
+	minWidth: number,
+	reach: number
+): Shoulder?
+	local best: Shoulder? = nil
+	local bestGap = reach
+	for _, shoulder in shoulders do
+		local gap = math.abs(shoulder.s - s)
+		if shoulder.side == side and shoulder.width >= minWidth and gap <= bestGap then
+			best = shoulder
+			bestGap = gap
+		end
+	end
+	return best
+end
+
+-- Точка на склоне на расстоянии out от края трассы
+local function onShoulder(shoulder: Shoulder, out: number): Vector3
+	local share = math.clamp(out / shoulder.width, 0, 1)
+	if share < M.MidShare then
+		return shoulder.edge:Lerp(shoulder.mid, share / M.MidShare)
+	end
+	return shoulder.mid:Lerp(shoulder.outer, (share - M.MidShare) / (1 - M.MidShare))
+end
+
+-- Указатели поворота: щиты со стрелками на внешней стороне дуги, лицом к едущему. Без текста.
+local function buildSigns(parent: Instance, track: Track.Data, shoulders: { Shoulder })
+	for s = G.Every, track.finishS, G.Every do
+		local _, _, _, _, kappa = Track.At(track, s)
+		if math.abs(kappa) >= G.Kappa then
+			local turn = math.sign(kappa) -- 1: поворот вправо, щит стоит слева
+			local shoulder = shoulderNear(shoulders, s, -turn, G.MinShoulder, G.Every / 2)
+			if shoulder then
+				-- Щит стоит лицом к едущему в той точке, где он на самом деле стоит
+				local _, tangent = Track.At(track, shoulder.s)
+				local forward = Vector3.new(tangent.X, 0, tangent.Z).Unit
+				local right = forward:Cross(Vector3.yAxis)
+				local foot = onShoulder(shoulder, G.Offset)
+				-- X щита смотрит вправо от едущего, Z на него самого
+				local frame = CFrame.fromMatrix(foot, right, Vector3.yAxis)
+				local tall = G.PostHeight + G.Sink
+				block(
+					parent,
+					Vector3.new(G.Post, tall, G.Post),
+					frame * CFrame.new(0, tall / 2 - G.Sink, 0),
+					G.PostColor,
+					Enum.Material.SmoothPlastic
+				)
+				local centre = frame * CFrame.new(0, G.PostHeight + G.Board.Y / 2, 0)
+				local sharp = math.abs(kappa) >= V.BrakeKappa
+				block(
+					parent,
+					G.Board,
+					centre,
+					if sharp then G.BoardSharp else G.BoardColor,
+					Enum.Material.SmoothPlastic
+				)
+				-- Стрелка из двух планок: остриё смотрит в сторону поворота
+				local angle = math.atan2(G.ArrowRise, G.ArrowRun)
+				local length = math.sqrt(G.ArrowRise ^ 2 + G.ArrowRun ^ 2)
+				for index = 1, G.Arrows do
+					local x = (index - (G.Arrows + 1) / 2) * G.ArrowGap
+					for _, half in { -1, 1 } do
+						block(
+							parent,
+							Vector3.new(length, G.ArrowThick, G.ArrowDepth),
+							centre
+								* CFrame.new(x, half * G.ArrowRise / 2, G.Board.Z / 2)
+								* CFrame.Angles(0, 0, -half * turn * angle),
+							G.ArrowColor,
+							Enum.Material.SmoothPlastic
+						)
+					end
+				end
+			end
+		end
+	end
+end
+
+-- Йети у трассы: стоят на склонах и смотрят на проезжающих
+local function buildYetis(parent: Instance, track: Track.Data, shoulders: { Shoulder }): { Vector3 }
+	local placed: { Vector3 } = {}
+	local asset = SledConfig.Assets.Yeti
+	local yeti = loadMesh(asset.mesh, asset.texture)
+	if not yeti then
+		return placed
+	end
+	for index, share in Y.At do
+		local s = track.finishS * share
+		local side = if index % 2 == 0 then 1 else -1
+		local shoulder = shoulderNear(shoulders, s, side, Y.MinShoulder, Y.Search)
+			or shoulderNear(shoulders, s, -side, Y.MinShoulder, Y.Search)
+		if shoulder then
+			local foot = onShoulder(shoulder, Y.Offset)
+			local toTrack = shoulder.edge - foot
+			local figure = yeti:Clone()
+			figure.Name = "Yeti"
+			figure.Size *= asset.height * Y.Scale / figure.Size.Y
+			figure.CFrame = CFrame.lookAlong(
+				foot + Vector3.yAxis * (figure.Size.Y / 2 - Y.Sink),
+				Vector3.new(toTrack.X, 0, toTrack.Z)
+			) * CFrame.Angles(0, math.rad(asset.yaw), 0)
+			figure.CastShadow = true
+			figure.Parent = parent
+			table.insert(placed, foot)
+		end
+	end
+	return placed
+end
+
 -- Всё вокруг, что строится сразу, без ожидания сети
 function Scenery.Build(parent: Instance, track: Track.Data, colorAt: (number) -> Color3)
 	buildFloor(parent, track)
@@ -467,10 +608,16 @@ end
 
 -- Лес и валуны. Ждёт загрузки моделей из сети, поэтому вызывается после того, как гора и
 -- точка появления уже в мире.
-function Scenery.Plant(parent: Instance, shoulders: { Shoulder })
+function Scenery.Plant(parent: Instance, track: Track.Data, shoulders: { Shoulder })
+	local signs = Instance.new("Model")
+	signs.Name = "Signs"
+	buildSigns(signs, track, shoulders)
+	signs.Parent = parent
+
 	local forest = Instance.new("Model")
 	forest.Name = "Forest"
-	buildTrees(forest, Random.new(S.Seed + 1), shoulders)
+	local yetis = buildYetis(forest, track, shoulders)
+	buildTrees(forest, Random.new(S.Seed + 1), shoulders, yetis)
 	forest.Parent = parent
 end
 

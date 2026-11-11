@@ -102,7 +102,26 @@ check(
 	Track.At(track, track.finishS).Y < Track.At(track, track.startS).Y
 )
 
--- Бот на каждом характере: с тормозом доезжает без вылетов, без тормоза вылетает
+do
+	-- Витки трассы не пересекаются и не подходят друг к другу вплотную
+	local T = SledConfig.Track
+	local worst = math.huge
+	local skip = math.ceil(T.GapSkip / track.step)
+	for i = 1, track.count, 2 do
+		for j = i + skip, track.count, 2 do
+			local a, b = track.pos[i], track.pos[j]
+			local flat = math.sqrt((a.X - b.X) ^ 2 + (a.Z - b.Z) ^ 2)
+			worst = math.min(worst, flat - (track.width[i] + track.width[j]) / 2)
+		end
+	end
+	check(
+		"трасса: витки не пересекаются",
+		worst >= T.MinGap,
+		string.format("самый узкий зазор %.0f, длина %.0f", worst, track.length)
+	)
+end
+
+-- Бот на каждом характере: с тормозом доезжает чисто, без тормоза бьётся о борт и теряет время
 for _, id in { false, "Grippy", "Drift", "Heavy" } do
 	local name = if id then id else "Base"
 	local p = physics(id or nil)
@@ -122,11 +141,16 @@ for _, id in { false, "Grippy", "Drift", "Heavy" } do
 		run.airTime > 0.2,
 		string.format("%.2f с в воздухе", run.airTime)
 	)
+	check(
+		name .. ": бот с тормозом не касается борта",
+		run.bankTime == 0,
+		string.format("%.2f с у борта", run.bankTime)
+	)
 	local noBrake = SledBot.Run(p, false, true)
 	check(
-		name .. ": без тормоза трасса не проходится чисто",
-		noBrake.falls > 0,
-		"первый вылет на s=" .. tostring(noBrake.fallAt[1])
+		name .. ": без тормоза санки доезжают, но бьются о борт",
+		noBrake.finished and noBrake.bankTime > 0,
+		string.format("%.1f с, у борта %.1f с", noBrake.time, noBrake.bankTime)
 	)
 end
 
@@ -159,16 +183,18 @@ do
 	)
 
 	state = SledSim.New(track, track.startS)
+	local inside = true
+	local hit = false
 	for _ = 1, 2400 do
 		SledSim.Step(track, state, p, 1, false, 1 / 120)
-		if state.fell then
-			break
-		end
+		hit = hit or state.bank
+		local _, _, _, width = Track.At(track, state.s)
+		inside = inside and math.abs(state.d) <= width / 2 and not state.fell
 	end
-	check("руль до упора вправо приводит к вылету", state.fell)
-	local s = state.s
-	SledSim.Step(track, state, p, 0, false, 1 / 120)
-	check("после вылета расчёт стоит", state.s == s)
+	check(
+		"руль до упора вправо: санки остаются на полотне у борта",
+		inside and hit and state.s > track.startS
+	)
 
 	-- Разный шаг расчёта (телефон 30 кадров против ПК 120) не должен менять результат заметно
 	local saved = SledConfig.Bot.Step
@@ -177,6 +203,44 @@ do
 	SledConfig.Bot.Step = 1 / 240
 	local fast = SledBot.Run(p, true, true)
 	SledConfig.Bot.Step = saved
+	-- То же без тормоза: тут работает снежный борт
+	SledConfig.Bot.Step = 1 / 60
+	local slowBank = SledBot.Run(p, false, true)
+	SledConfig.Bot.Step = 1 / 240
+	local fastBank = SledBot.Run(p, false, true)
+	SledConfig.Bot.Step = saved
+	check(
+		"борт: время заезда почти не зависит от шага расчёта",
+		slowBank.finished and fastBank.finished and math.abs(slowBank.time - fastBank.time) < 2,
+		string.format(
+			"%.2f с при 60 Гц, %.2f с при 240 Гц",
+			slowBank.time,
+			fastBank.time
+		)
+	)
+
+	-- Задел борт и отпустил руль: санки сами отходят от борта, а не трутся о него до остановки
+	state = SledSim.New(track, track.startS)
+	local touched = false
+	for _ = 1, 960 do
+		SledSim.Step(track, state, p, 1, false, 1 / 120)
+		touched = touched or state.bank
+	end
+	local stuck = 0
+	for step = 1, 240 do
+		SledSim.Step(track, state, p, 0, false, 1 / 120)
+		if step > 120 and state.bank then
+			stuck += 1
+		end
+	end
+	check(
+		"борт: с отпущенным рулём санки отходят от него",
+		touched and stuck <= 3, -- касание другого борта допустимо, трение нет
+		string.format(
+			"шагов у борта через секунду после отпускания: %d",
+			stuck
+		)
+	)
 	check(
 		"время заезда почти не зависит от шага расчёта",
 		slow.finished and fast.finished and math.abs(slow.time - fast.time) < 1,

@@ -15,6 +15,7 @@ export type Result = {
 	maxSpeed: number,
 	airTime: number,
 	brakeTime: number,
+	bankTime: number, -- сколько тёрся о снежный борт
 }
 
 local SledBot = {}
@@ -47,6 +48,7 @@ function SledBot.Run(p: SledConfig.Physics, useBrake: boolean, useSteer: boolean
 		maxSpeed = 0,
 		airTime = 0,
 		brakeTime = 0,
+		bankTime = 0,
 	}
 	local dt = B.Step
 	while result.time < B.MaxTime do
@@ -66,6 +68,9 @@ function SledBot.Run(p: SledConfig.Physics, useBrake: boolean, useSteer: boolean
 		end
 		if brake then
 			result.brakeTime += dt
+		end
+		if state.bank then
+			result.bankTime += dt
 		end
 		if state.fell then
 			result.falls += 1

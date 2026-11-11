@@ -16,6 +16,8 @@ export type State = {
 	airborne: boolean,
 	yaw: number, -- текущая скорость поворота носа, рад/с
 	fell: boolean, -- вылетел за край
+	bank: boolean, -- трётся о снежный борт у края
+	bankFree: number, -- сколько секунд санки не касались борта
 }
 
 local SledSim = {}
@@ -38,6 +40,8 @@ function SledSim.Place(track: Track.Data, state: State, s: number, speed: number
 	state.airborne = false
 	state.yaw = 0
 	state.fell = false
+	state.bank = false
+	state.bankFree = math.huge
 end
 
 function SledSim.New(track: Track.Data, s: number): State
@@ -53,6 +57,8 @@ function SledSim.New(track: Track.Data, s: number): State
 		airborne = false,
 		yaw = 0,
 		fell = false,
+		bank = false,
+		bankFree = math.huge,
 	}
 	SledSim.Place(track, state, s, 0)
 	return state
@@ -67,12 +73,13 @@ function SledSim.Step(
 	brake: boolean,
 	dt: number
 )
-	if state.fell or dt <= 0 then
+	if state.fell or dt ~= dt or dt <= 0 then
 		return
 	end
 	if steer ~= steer then
 		steer = 0 -- NaN от ввода не должен попасть в расчёт
 	end
+	steer = math.clamp(steer, -1, 1)
 	local pos, tangent, right, _, kappa = Track.At(track, state.s)
 	local heightBefore = pos.Y + right.Y * state.d
 	local grounded = not state.airborne
@@ -115,23 +122,51 @@ function SledSim.Step(
 	state.s += ds
 	state.d += state.v * math.sin(state.slide) * dt
 
+	-- Край трассы: рыхлый снежный борт. Он не выбрасывает, а тормозит и возвращает на полотно.
+	local posAfter, _, rightAfter, widthAfter = Track.At(track, state.s)
+	local limit = widthAfter / 2 - p.EdgeInset
+	state.bank = false
+	if math.abs(state.d) > limit then
+		local side = math.sign(state.d)
+		state.d = side * limit
+		state.bank = true
+		local angle = math.max(0, math.sin(state.slide) * side)
+		if grounded then
+			-- Удар стоит скорости один раз: чем прямее въехал, тем больше. Дальше, пока санки
+			-- трутся о борт, скорость просто тает.
+			local keep = math.exp(-p.BankDrag * dt)
+			if state.bankFree > p.BankRegrip then
+				keep *= (1 - p.BankShock) * math.max(0, 1 - p.BankHit * angle)
+			end
+			state.v *= keep
+			state.bankFree = 0
+		end
+		-- Борт отталкивает обратно на полотно; нос смотрит в него, только пока туда рулят
+		if state.slide * side > -p.BankPush then
+			state.slide = -side * p.BankPush
+		end
+		local into = math.max(0, steer * side)
+		local cap = p.BankHeading * into - p.BankPush * (1 - into)
+		if state.heading * side > cap then
+			state.heading = side * cap
+		end
+	else
+		state.bankFree += dt
+	end
+
 	-- Трасса поворачивает под санками: без руля они уезжают наружу. Assist проходит часть сам.
 	local turned = kappa * ds * (if grounded then 1 - p.Assist else 1)
 	state.heading -= turned
 	state.slide -= turned
 
 	-- Высота: если снег уходит вниз быстрее свободного падения, санки летят
-	local posAfter, _, rightAfter, widthAfter = Track.At(track, state.s)
 	local ground = posAfter.Y + rightAfter.Y * state.d
 	local free = state.y + state.w * dt - 0.5 * p.AirGravity * dt * dt
-	local outside = math.abs(state.d) > widthAfter / 2
 	if free > ground then
 		state.y = free
 		state.w -= p.AirGravity * dt
 		state.air = free - ground
 		state.airborne = state.air > p.AirThreshold
-	elseif outside then
-		state.fell = true -- под санками нет полотна: вылет
 	else
 		state.y = ground
 		state.w = (ground - heightBefore) / dt

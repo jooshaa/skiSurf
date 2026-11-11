@@ -36,6 +36,9 @@ local function measure(track: Track.Data, count: number): ({ { number } }, { { b
 	local room: { { boolean } } = table.create(count)
 	local skirtRun = S.SkirtLength * math.cos(S.SkirtSlope)
 	for r = 1, count do
+		if r % M.MeasureYield == 0 then
+			task.wait() -- расчёт долгий: не держим сервер одним куском
+		end
 		local s = (r - 1) * M.RingStep
 		local pos, tangent, right, width, kappa = Track.At(track, s)
 		local flatRight = Vector3.new(right.X, 0, right.Z).Unit
@@ -219,6 +222,8 @@ function TrackMesh.Build(
 							outer = if side < 0 then points[1] else points[3],
 							width = ring.reach[index],
 							weight = weight,
+							s = ring.s,
+							side = side,
 						})
 					end
 				end
