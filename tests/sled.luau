@@ -40,6 +40,7 @@ end
 
 local SledConfig = load("SledConfig")
 local Track = load("Track")
+local Obstacles = load("Obstacles")
 local SledSim = load("SledSim")
 local SledBot = load("SledBot")
 
@@ -143,14 +144,74 @@ for _, id in { false, "Grippy", "Drift", "Heavy" } do
 	)
 	check(
 		name .. ": бот с тормозом не касается борта",
-		run.bankTime == 0,
+		run.bankTime <= (if id then 0.1 else 0), -- тяжёлые характеры могут задеть борт, объезжая
 		string.format("%.2f с у борта", run.bankTime)
+	)
+	check(
+		name .. ": бот объезжает препятствия",
+		run.hits <= (if id then 3 else 0), -- на базовых санках чисто; тяжёлые и скользкие могут задеть
+		string.format("наездов %d", run.hits)
 	)
 	local noBrake = SledBot.Run(p, false, true)
 	check(
 		name .. ": без тормоза санки доезжают, но бьются о борт",
 		noBrake.finished and noBrake.bankTime > 0,
 		string.format("%.1f с, у борта %.1f с", noBrake.time, noBrake.bankTime)
+	)
+end
+
+-- Препятствия
+do
+	local list = Obstacles.Get(track)
+	local count = { Drift = 0, Yeti = 0, Lava = 0 }
+	local inside = true
+	for _, obstacle in list do
+		count[obstacle.kind] += 1
+		local _, _, _, width = Track.At(track, obstacle.s)
+		local reach = math.abs(obstacle.d) + obstacle.sway + obstacle.radius
+		inside = inside and reach <= width / 2
+		local inCave = Track.CaveDepth(track, obstacle.s) > 0
+		inside = inside and inCave == (obstacle.kind == "Lava")
+	end
+	check(
+		"препятствия: есть все три вида, все на полотне, лава только в пещерах",
+		inside and count.Drift > 5 and count.Yeti > 3 and count.Lava > 5 and #track.caves == 2,
+		string.format(
+			"сугробов %d, йети %d, луж лавы %d",
+			count.Drift,
+			count.Yeti,
+			count.Lava
+		)
+	)
+
+	-- Едем прямо в сугроб: скорость падает один раз, санки едут дальше
+	local p = physics()
+	local target
+	for _, obstacle in list do
+		if obstacle.kind == "Drift" then
+			target = obstacle
+			break
+		end
+	end
+	local state = SledSim.New(track, target.s - 30)
+	state.d = target.d
+	state.v = 80
+	local prevHits = state.hits
+	local hits = 0
+	for _ = 1, 240 do
+		SledSim.Step(track, state, p, 0, false, 1 / 120)
+		if state.hits > prevHits then
+			hits += (state.hits - prevHits)
+			prevHits = state.hits
+		end
+	end
+	check(
+		"сугроб: наезд один раз тормозит и не останавливает",
+		hits == 1
+			and state.hits == 1
+			and state.s > target.s + target.radius
+			and state.v > p.MinSpeed,
+		string.format("ударов %d, скорость после %.0f", hits, state.v)
 	)
 end
 
@@ -245,6 +306,37 @@ do
 		"время заезда почти не зависит от шага расчёта",
 		slow.finished and fast.finished and math.abs(slow.time - fast.time) < 1,
 		string.format("%.2f с при 60 Гц, %.2f с при 240 Гц", slow.time, fast.time)
+	)
+end
+
+-- Боксы с предметами и балансировка способностей (Beach Buggy Racing style)
+do
+	local Powerups = load("Powerups")
+	local boxes = Powerups.GetBoxes(track)
+	check(
+		"предметы: боксы расставлены линиями вдоль всей трассы",
+		#boxes >= 8,
+		string.format("всего боксов: %d", #boxes)
+	)
+
+	local leaderRockets = 0
+	local trailerRockets = 0
+	for _ = 1, 100 do
+		if Powerups.RollItem(1) == "Rocket" then
+			leaderRockets += 1
+		end
+		if Powerups.RollItem(4) == "Rocket" then
+			trailerRockets += 1
+		end
+	end
+	check(
+		"предметы: отстающие чаще получают ракету чем лидер",
+		trailerRockets > leaderRockets,
+		string.format(
+			"ракет у 4-го места: %d, у 1-го места: %d",
+			trailerRockets,
+			leaderRockets
+		)
 	)
 end
 

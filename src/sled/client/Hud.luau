@@ -29,6 +29,12 @@ local lights: { Frame } = {}
 local lightRow: Frame
 local shownTenths = -1 -- время на экране меняется 10 раз в секунду, а не каждый кадр
 
+local rankLabel: TextLabel
+local itemSlot: Frame
+local itemIcon: TextLabel
+local itemUseBtn: TextButton
+local onItemUse: (() -> ())? = nil
+
 local function round(instance: GuiObject, radius: number)
 	local corner = Instance.new("UICorner")
 	corner.CornerRadius = UDim.new(radius, 0)
@@ -132,7 +138,107 @@ function Hud.Create()
 		lights[index] = light
 	end
 
+	-- Позиция в гонке (1ST, 2ND, 3RD, 4TH) в левом верхнем углу
+	rankLabel = label(gui, UDim2.fromScale(0.18, 0.08), UDim2.fromScale(0.03, 0.08))
+	rankLabel.TextXAlignment = Enum.TextXAlignment.Left
+	rankLabel.Font = Enum.Font.FredokaOne
+	rankLabel.Text = "1ST"
+	rankLabel.TextColor3 = Color3.fromRGB(255, 215, 0)
+	rankLabel.TextStrokeColor3 = Color3.fromRGB(20, 24, 34)
+	rankLabel.TextStrokeTransparency = 0.3
+
+	-- Слот предмета (справа над кнопкой тормоза, как в Mario Kart / BB Racing)
+	itemSlot = frame(
+		gui,
+		UDim2.fromScale(0.18, 0.18),
+		UDim2.fromScale(0.96, 0.63),
+		Color3.fromRGB(30, 36, 52),
+		0.25
+	)
+	itemSlot.SizeConstraint = Enum.SizeConstraint.RelativeYY
+	itemSlot.AnchorPoint = Vector2.new(1, 1)
+	round(itemSlot, 0.5)
+
+	-- Обводка слота
+	local stroke = Instance.new("UIStroke")
+	stroke.Thickness = 3
+	stroke.Color = Color3.fromRGB(255, 205, 50)
+	stroke.Transparency = 0.2
+	stroke.Parent = itemSlot
+
+	-- Иконка предмета внутри слота
+	itemIcon = Instance.new("TextLabel")
+	itemIcon.Size = UDim2.fromScale(0.85, 0.85)
+	itemIcon.Position = UDim2.fromScale(0.5, 0.5)
+	itemIcon.AnchorPoint = Vector2.new(0.5, 0.5)
+	itemIcon.BackgroundTransparency = 1
+	itemIcon.Font = Enum.Font.FredokaOne
+	itemIcon.TextScaled = true
+	itemIcon.TextColor3 = WHITE
+	itemIcon.Text = ""
+	itemIcon.Parent = itemSlot
+
+	-- Кнопка активации для тачскрина / клика
+	itemUseBtn = Instance.new("TextButton")
+	itemUseBtn.Size = UDim2.fromScale(1, 1)
+	itemUseBtn.BackgroundTransparency = 1
+	itemUseBtn.Text = ""
+	itemUseBtn.Parent = itemSlot
+	itemUseBtn.Activated:Connect(function()
+		if onItemUse then
+			onItemUse()
+		end
+	end)
+
 	gui.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
+end
+
+-- Обновление слота предмета (рулетка, иконка, готовность)
+function Hud.SetPowerup(kind: string?, isRoulette: boolean, onUse: (() -> ())?)
+	onItemUse = onUse
+	if not itemSlot or not itemIcon then
+		return
+	end
+
+	if not kind then
+		itemSlot.Visible = false
+		itemIcon.Text = ""
+		return
+	end
+
+	itemSlot.Visible = true
+	if isRoulette then
+		itemIcon.Text = "❓"
+		itemIcon.TextColor3 = Color3.fromRGB(255, 230, 80)
+	else
+		if kind == "Rocket" then
+			itemIcon.Text = "🚀"
+		elseif kind == "Fireworks" then
+			itemIcon.Text = "🎆"
+		elseif kind == "Boost" then
+			itemIcon.Text = "⚡"
+		elseif kind == "Shield" then
+			itemIcon.Text = "🛡️"
+		else
+			itemIcon.Text = "?"
+		end
+	end
+end
+
+-- Позиция в гонке
+function Hud.SetRank(rank: number, _total: number)
+	if not rankLabel then
+		return
+	end
+	local suffixes = { [1] = "1ST", [2] = "2ND", [3] = "3RD", [4] = "4TH" }
+	local colors = {
+		[1] = Color3.fromRGB(255, 215, 0), -- Золото
+		[2] = Color3.fromRGB(215, 225, 240), -- Серебро
+		[3] = Color3.fromRGB(205, 130, 60), -- Бронза
+		[4] = Color3.fromRGB(150, 160, 180),
+	}
+	rankLabel.Text = suffixes[rank] or string.format("%dTH", rank)
+	rankLabel.TextColor3 = colors[rank] or Color3.fromRGB(180, 190, 210)
 end
 
 function Hud.Update(speed: number, steer: number, brake: boolean, progress: number, time: number)

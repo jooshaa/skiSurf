@@ -8,6 +8,7 @@ export type Piece = {
 	slope: number, -- уклон вниз, градусов (минус = подъём, трамплин)
 	width: number, -- ширина полотна
 	checkpoint: boolean?, -- чекпоинт в начале куска
+	cave: boolean?, -- кусок идёт внутри лавовой пещеры
 }
 
 export type Physics = {
@@ -124,6 +125,10 @@ SledConfig.Track = {
 		{ length = 240, turn = 70, slope = 13, width = 64 },
 		{ length = 240, turn = -70, slope = 13, width = 64 },
 		{ length = 280, turn = 0, slope = 20, width = 68 },
+		-- Первая лавовая пещера: полого, чтобы успевать объезжать лаву
+		{ length = 220, turn = 0, slope = 12, width = 62, checkpoint = true, cave = true },
+		{ length = 260, turn = 40, slope = 10, width = 58, cave = true },
+		{ length = 260, turn = -40, slope = 10, width = 58, cave = true },
 		{ length = 140, turn = 0, slope = 18, width = 66, checkpoint = true },
 		{ length = 105, turn = 168, slope = 8, width = 46 }, -- первая шпилька: без тормоза в борт
 		{ length = 240, turn = 0, slope = 20, width = 58, checkpoint = true },
@@ -151,6 +156,10 @@ SledConfig.Track = {
 		{ length = 105, turn = 168, slope = 8, width = 46 }, -- четвёртая шпилька
 		{ length = 300, turn = 0, slope = 20, width = 70, checkpoint = true },
 		{ length = 400, turn = -90, slope = 14, width = 72 },
+		-- Вторая лавовая пещера: полого, чтобы успевать объезжать лаву
+		{ length = 220, turn = 0, slope = 12, width = 62, checkpoint = true, cave = true },
+		{ length = 260, turn = -40, slope = 10, width = 58, cave = true },
+		{ length = 260, turn = 40, slope = 10, width = 58, cave = true },
 		{ length = 360, turn = 0, slope = 18, width = 80, checkpoint = true }, -- финишная прямая
 		{ length = 240, turn = 0, slope = 0, width = 90 }, -- выкат после финиша
 	} :: { Piece },
@@ -210,6 +219,7 @@ SledConfig.Camera = {
 	LandKick = 0.07, -- кивок камеры при приземлении, рад
 	LandKickDecay = 7,
 	BankKick = 0.05, -- кивок камеры при ударе о снежный борт, рад
+	HitKick = 0.09, -- кивок камеры при наезде на препятствие, рад
 	FallFov = 60,
 	OrbitSpeed = 0.006, -- поворот камеры на пиксель сдвига пальца или мыши, рад
 	OrbitPitchDefault = 0.28, -- высота камеры на старте: трасса видна сверху, рад
@@ -357,7 +367,13 @@ SledConfig.Yeti = {
 
 -- Метель: участки трассы, где снег валит стеной и дальше хуже видно
 SledConfig.Blizzard = {
-	Zones = { { from = 0.3, to = 0.4 }, { from = 0.64, to = 0.75 } }, -- доли пути до финиша
+	-- Доли пути до финиша. Пещеры занимают 0,22–0,31 и 0,88–0,96: там снега нет.
+	Zones = {
+		{ from = 0.09, to = 0.17 },
+		{ from = 0.33, to = 0.43 },
+		{ from = 0.52, to = 0.6 },
+		{ from = 0.68, to = 0.78 },
+	},
 	Fade = 0.025, -- метель нарастает и стихает на такой доле пути
 	Rate = 3, -- во сколько раз больше снежинок
 	Wind = Vector3.new(34, -6, 10), -- ветер в метель (добавляется к обычному)
@@ -422,6 +438,7 @@ SledConfig.Scenery = {
 	PeakSnow = Color3.fromRGB(240, 245, 255),
 	-- Лес и валуны на склонах
 	TreeMinShoulder = 16, -- на склоне уже этого ничего не растёт
+	CaveGuard = 14, -- и ближе этого к пещере тоже
 	TreeShadows = true,
 	RockShadows = false,
 	TreeChance = 0.24, -- шанс ели на 8 студов склона
@@ -568,6 +585,7 @@ SledConfig.Fx = {
 	LandCount = 40,
 	LandMinAir = 0.2, -- полёт короче этого приземлением не считается, секунд
 	BankPuff = 0.6, -- доля облака приземления при ударе о борт
+	HitPuff = 1, -- то же при наезде на препятствие
 	LandFullAir = 0.9, -- полёт этой длины даёт полное облако и полный кивок камеры
 	TrailWidth = 0.35,
 	TrailHeight = 0.06,
@@ -593,6 +611,93 @@ SledConfig.Snowfall = {
 	LeadTime = 0.3, -- объём снегопада сдвинут вперёд на столько секунд пути; камера остаётся внутри
 }
 
+-- Препятствия на полотне. Наезд стоит скорости и отбрасывает в сторону; потерять заезд нельзя.
+SledConfig.Obstacles = {
+	Seed = 3, -- одно и то же число = одна и та же расстановка
+	HitRegrip = 0.5, -- повторный удар раньше этого времени не считается, с
+	Push = 0.22, -- на какой угол санки отбрасывает в сторону, рад
+	StartClear = 420, -- от старта до первого препятствия
+	FinishClear = 200, -- перед финишем чисто
+	EdgeGap = 4, -- препятствие не ближе этого к снежному борту
+	SteepPitch = math.rad(25), -- круче этого (приземление) и на подъёме (трамплин) препятствий нет
+	JumpGuard = 100, -- и на столько студов вокруг
+	SharpKappa = 1 / 90, -- в поворотах круче этого препятствий нет
+	CaveGuard = 40, -- сугробы и йети не ближе этого к входу в пещеру
+	-- Сугроб: тормозит несильно
+	Drift = {
+		radius = 6.5,
+		keep = 0.7, -- доля скорости, которая остаётся после наезда
+		every = 210, -- шаг вдоль трассы
+		spread = 0.8, -- как далеко от оси, доля свободной ширины
+		height = 0.5, -- высота в долях радиуса
+		color = Color3.fromRGB(196, 212, 240),
+	},
+	-- Йети ходит поперёк трассы
+	Yeti = {
+		radius = 5.5,
+		keep = 0.45,
+		every = 560,
+		first = 700, -- где стоит первый
+		sway = 18, -- на сколько студов отходит от своей точки
+		rate = 0.9, -- как быстро ходит, рад/с
+		height = 13,
+		waddle = 0.12, -- раскачивание при ходьбе, рад
+		waddleRate = 6,
+		knockTime = 0.9, -- сколько йети кружится после удара, с
+		knockSpin = 14, -- рад/с
+	},
+	-- Лужа лавы в пещере
+	Lava = {
+		radius = 7,
+		keep = 0.5,
+		every = 95,
+		enter = 80, -- от входа в пещеру до первой лужи
+		spread = 0.7,
+		thickness = 0.35,
+		rim = 1.2, -- каменный ободок шире лужи на столько
+		color = Color3.fromRGB(255, 120, 20),
+		rimColor = Color3.fromRGB(46, 40, 44),
+	},
+}
+
+-- Лавовая пещера над кусками трассы с пометкой cave
+SledConfig.Cave = {
+	RingStep = 12, -- шаг сводов вдоль трассы
+	Segments = 7, -- плит в одном своде
+	Side = 7, -- от края полотна до стены: здесь течёт лава
+	Height = 28, -- высота свода над осью
+	Thickness = 6,
+	Sink = 4, -- свод начинается ниже полотна, чтобы под стеной не было щели
+	Overlap = 0.8,
+	Rock = Color3.fromRGB(58, 52, 60),
+	RockB = Color3.fromRGB(70, 62, 68),
+	SnowCap = 3, -- сколько верхних плит снаружи покрыто снегом
+	SnowThickness = 2.5,
+	SnowColor = Color3.fromRGB(236, 242, 252),
+	PortalGrow = 4, -- входная арка больше свода на столько
+	PortalDepth = 6,
+	PortalColor = Color3.fromRGB(150, 200, 235),
+	LavaDrop = 0.1, -- лава у стен чуть ниже полотна
+	LavaThickness = 1,
+	LavaColor = Color3.fromRGB(255, 110, 20),
+	LightEvery = 72,
+	LightRange = 60,
+	LightBrightness = 2.2,
+	LightColor = Color3.fromRGB(255, 140, 60),
+	LightHeight = 3,
+	-- Что видит игрок внутри (клиент)
+	Fade = 50, -- свет меняется на таком пути от входа, студов
+	Smooth = 4, -- и не быстрее этого, 1/с
+	Brightness = 0.25,
+	Exposure = -0.1,
+	Ambient = Color3.fromRGB(70, 38, 30),
+	OutdoorAmbient = Color3.fromRGB(60, 36, 34),
+	FogColor = Color3.fromRGB(120, 60, 40),
+	FogDensity = 0.3,
+	CameraHeight = 17, -- камера не выше этого над полотном, иначе она окажется над сводом
+	Epsilon = 0.005,
+}
+
 SledConfig.Hud = {
 	SpeedMax = 170, -- полная полоска скорости
 	BrakeButton = 0.26, -- диаметр кнопки тормоза в долях высоты экрана
@@ -608,6 +713,67 @@ SledConfig.Bot = {
 	HeadingGain = 4,
 	MaxTime = 300,
 	Step = 1 / 120, -- как у игрока при 60 кадрах: два шага расчёта на кадр
+	AvoidTime = 1.6, -- бот замечает препятствие за столько секунд пути
+	AvoidMin = 40, -- и не ближе этого, студов
+	AvoidMargin = 4, -- объезжает с таким запасом
+	AvoidGain = 0.06, -- как резко уходит в сторону, рад на студ
+	AvoidBrake = 9, -- тормозит, если до линии объезда дальше этого, студов
+}
+
+SledConfig.Powerups = {
+	BoxLines = { 0.16, 0.38, 0.60, 0.82 }, -- доли длины трассы, где стоят линии боксов
+	BoxesPerLine = 3,
+	BoxSpread = 0.65, -- на какую долю свободной ширины расставляются боксы
+	BoxSize = Vector3.new(3.6, 3.6, 3.6),
+	BoxFloat = 3.2, -- высота над полотном
+	BoxRadius = 4.8, -- радиус взятия санями
+	BoxRespawn = 4.5, -- секунд до повторного появления
+	SpinRate = 2.4, -- скорость вращения бокса, рад/с
+	BobRate = 3.2,
+	BobHeight = 0.4,
+	RouletteDuration = 0.75, -- сколько длится прокрутка предмета на экране
+
+	Rocket = {
+		Speed = 135,
+		MaxRange = 520,
+		HitRadius = 7.5,
+		StunDuration = 1.3,
+		SpeedFactor = 0.32,
+		SpinSpeed = 14,
+	},
+	Fireworks = {
+		VolleyCount = 3,
+		SpreadAngles = { -0.20, 0, 0.20 },
+		Speed = 110,
+		Range = 240,
+		ExplosionRadius = 13,
+		StunDuration = 1.0,
+		SpeedFactor = 0.40,
+		SpinSpeed = 10,
+	},
+	Boost = {
+		ExtraSpeed = 45,
+		Duration = 2.3,
+	},
+	Shield = {
+		Duration = 6.0,
+	},
+}
+
+SledConfig.Rivals = {
+	Count = 3,
+	Names = { "Frosty", "Blaze", "Shadow" },
+	SledColors = {
+		Color3.fromRGB(45, 180, 255),
+		Color3.fromRGB(255, 95, 40),
+		Color3.fromRGB(175, 65, 245),
+	},
+	RunnerColors = {
+		Color3.fromRGB(20, 45, 75),
+		Color3.fromRGB(65, 25, 15),
+		Color3.fromRGB(40, 18, 55),
+	},
+	StartOffsets = { -5.0, 3.5, 7.5 }, -- смещение от оси на старте
 }
 
 return SledConfig

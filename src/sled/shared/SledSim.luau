@@ -1,6 +1,7 @@
 --!strict
 -- SledSim: движение санок в координатах трассы. Чистый расчёт без Instance: один и тот же код
 -- двигает санки игрока на клиенте, бота-проверяющего и (позже) проверку на сервере.
+local Obstacles = require(script.Parent.Obstacles)
 local SledConfig = require(script.Parent.SledConfig)
 local Track = require(script.Parent.Track)
 
@@ -18,7 +19,13 @@ export type State = {
 	fell: boolean, -- вылетел за край
 	bank: boolean, -- трётся о снежный борт у края
 	bankFree: number, -- сколько секунд санки не касались борта
+	time: number, -- секунд с начала заезда: по этим часам ходят йети
+	lastHit: number, -- номер препятствия, на которое наехали последним (0 = ещё ни на одно)
+	hits: number, -- сколько наездов за заезд
+	hitFree: number, -- сколько секунд санки не касались препятствий
 }
+
+local O = SledConfig.Obstacles
 
 local SledSim = {}
 
@@ -42,6 +49,15 @@ function SledSim.Place(track: Track.Data, state: State, s: number, speed: number
 	state.fell = false
 	state.bank = false
 	state.bankFree = math.huge
+	state.hitFree = math.huge
+end
+
+-- Начать заезд заново: часы и счётчик наездов с нуля
+function SledSim.Reset(track: Track.Data, state: State, s: number)
+	SledSim.Place(track, state, s, 0)
+	state.time = 0
+	state.hits = 0
+	state.lastHit = 0
 end
 
 function SledSim.New(track: Track.Data, s: number): State
@@ -59,6 +75,10 @@ function SledSim.New(track: Track.Data, s: number): State
 		fell = false,
 		bank = false,
 		bankFree = math.huge,
+		time = 0,
+		lastHit = 0,
+		hits = 0,
+		hitFree = math.huge,
 	}
 	SledSim.Place(track, state, s, 0)
 	return state
@@ -152,6 +172,37 @@ function SledSim.Step(
 		end
 	else
 		state.bankFree += dt
+	end
+
+	-- Препятствия: наезд стоит скорости один раз и отбрасывает в сторону. В полёте их перелетают.
+	state.time += dt
+	local touching = false
+	if grounded then
+		for index, obstacle in Obstacles.Get(track) do
+			local gap = state.s - obstacle.s
+			if gap < -obstacle.radius then
+				break -- список идёт по порядку: дальше только те, что ещё впереди
+			end
+			if gap < obstacle.radius then
+				local side = state.d - Obstacles.D(obstacle, state.time)
+				if gap * gap + side * side < obstacle.radius * obstacle.radius then
+					touching = true
+					if state.hitFree > O.HitRegrip then
+						local away = if side >= 0 then 1 else -1
+						state.v *= obstacle.keep
+						state.slide = away * O.Push
+						state.heading = away * O.Push
+						state.lastHit = index
+						state.hits += 1
+					end
+				end
+			end
+		end
+	end
+	if touching then
+		state.hitFree = 0
+	else
+		state.hitFree += dt
 	end
 
 	-- Трасса поворачивает под санками: без руля они уезжают наружу. Assist проходит часть сам.

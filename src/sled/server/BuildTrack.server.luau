@@ -8,6 +8,7 @@ local Workspace = game:GetService("Workspace")
 
 local SledConfig = require(ReplicatedStorage.SledConfig)
 local Track = require(ReplicatedStorage.Track)
+local Hazards = require(ServerScriptService.Hazards)
 local Scenery = require(ServerScriptService.Scenery)
 local Peaks = require(ServerScriptService.Peaks)
 local TrackMesh = require(ServerScriptService.TrackMesh)
@@ -162,6 +163,7 @@ end
 buildGate(model, track.finishS, Color3.new(1, 1, 1), V.FinishTiles)
 Scenery.Build(model, track, edgeColor)
 buildSpawn(model)
+Hazards.BuildCaves(model, track)
 model.Parent = Workspace
 
 -- Гладкая поверхность и лес ждут движок и сеть: строим их, когда гора и точка появления уже на
@@ -185,4 +187,5 @@ task.spawn(function()
 		buildSurface(model, true, false)
 		Scenery.Plant(model, track, Scenery.ShoulderParts(model, track))
 	end
+	Hazards.BuildObstacles(model, track)
 end)

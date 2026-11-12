@@ -12,6 +12,7 @@ export type Data = {
 	startS: number,
 	finishS: number,
 	checkpoints: { number },
+	caves: { { from: number, to: number } }, -- участки внутри пещер
 	pos: { Vector3 },
 	yaw: { number },
 	pitch: { number },
@@ -51,6 +52,7 @@ function Track.Get(): Data
 	local pitch: { number } = {}
 	local width: { number } = {}
 	local checkpoints: { number } = {}
+	local caves: { { from: number, to: number } } = {}
 
 	local distance = 0
 	for _, piece in T.Pieces do
@@ -63,6 +65,15 @@ function Track.Get(): Data
 			table.insert(kappa, curve)
 			table.insert(pitch, math.rad(piece.slope))
 			table.insert(width, piece.width)
+		end
+		if piece.cave then
+			-- Соседние куски пещеры сливаются в одну
+			local last = caves[#caves]
+			if last and last.to == distance then
+				last.to = distance + samples * step
+			else
+				table.insert(caves, { from = distance, to = distance + samples * step })
+			end
 		end
 		distance += samples * step
 	end
@@ -90,6 +101,7 @@ function Track.Get(): Data
 		startS = T.StartS,
 		finishS = length - T.FinishBeforeEnd,
 		checkpoints = checkpoints,
+		caves = caves,
 		pos = pos,
 		yaw = yaw,
 		pitch = pitch,
@@ -136,6 +148,15 @@ function Track.MaxKappa(data: Data, from: number, distance: number): number
 		worst = math.max(worst, math.abs(data.kappa[i]))
 	end
 	return worst
+end
+
+-- Насколько точка s внутри пещеры: расстояние до ближайшего выхода (минус = снаружи)
+function Track.CaveDepth(data: Data, s: number): number
+	local best = -math.huge
+	for _, cave in data.caves do
+		best = math.max(best, math.min(s - cave.from, cave.to - s))
+	end
+	return best
 end
 
 -- Последний чекпоинт не дальше s (или старт)

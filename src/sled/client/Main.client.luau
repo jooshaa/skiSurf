@@ -12,21 +12,26 @@ local SledConfig = require(ReplicatedStorage.SledConfig)
 local SledBot = require(ReplicatedStorage.SledBot)
 local SledSim = require(ReplicatedStorage.SledSim)
 local Track = require(ReplicatedStorage.Track)
+local Powerups = require(ReplicatedStorage.Powerups)
 -- Скрипты игрока копируются по одному: соседние модули могут появиться чуть позже
 local Hud = require(script.Parent:WaitForChild("Hud"))
 local Input = require(script.Parent:WaitForChild("Input"))
 local SledView = require(script.Parent:WaitForChild("SledView"))
+local PowerupEffects = require(script.Parent:WaitForChild("PowerupEffects"))
 
 local R = SledConfig.Run
 local C = SledConfig.Camera
 local S = SledConfig.Sled
 local F = SledConfig.Fx
 local Z = SledConfig.Blizzard
+local P = SledConfig.Powerups
+local RV = SledConfig.Rivals
 
 local player = Players.LocalPlayer
 local track = Track.Get()
 local params: SledConfig.Physics = table.clone(SledConfig.Physics)
 local state = SledSim.New(track, track.startS)
+local boxes = Powerups.GetBoxes(track)
 
 type Mode = "countdown" | "run" | "fall" | "finish"
 local mode: Mode = "countdown"
@@ -36,6 +41,33 @@ local bestTime: number? = nil
 local blink = 0
 local lean = 0 -- наклон в поворот от -1 до 1, сглаженный руль
 local autopilot = false -- клавиша B: едет бот, можно смотреть линию и камеру
+
+-- Предметы игрока
+local playerItem: Powerups.Kind? = nil
+local isRoulette = false
+local rouletteTime = 0
+local shieldActive = false
+local shieldPart: Part? = nil
+local boostTime = 0
+local spinOutTime = 0
+local playerRank = 1
+
+-- Соперники (боты на санках)
+type Rival = {
+	id: string,
+	name: string,
+	state: SledSim.State,
+	model: Model,
+	color: Color3,
+	startOffset: number,
+	item: Powerups.Kind?,
+	itemCooldown: number,
+	shieldActive: boolean,
+	shieldPart: Part?,
+	boostTime: number,
+	spinOutTime: number,
+}
+local rivals: { Rival } = {}
 
 local fallFrame = CFrame.new()
 local fallVelocity = Vector3.zero
@@ -178,11 +210,238 @@ local function place(s: number, speed: number)
 	SledView.Cut()
 end
 
+-- Создание 3D-модели санок для соперника-бота
+local function createRivalModel(name: string, color: Color3, runnerColor: Color3): Model
+	local m = Instance.new("Model")
+	m.Name = "Rival_" .. name
+	m.Parent = Workspace
+
+	local rootPart = Instance.new("Part")
+	rootPart.Name = "Root"
+	rootPart.Size = S.Board
+	rootPart.Color = color
+	rootPart.Material = Enum.Material.SmoothPlastic
+	rootPart.Anchored = true
+	rootPart.CanCollide = false
+	rootPart.CanTouch = false
+	rootPart.CanQuery = false
+	rootPart.CastShadow = false
+	rootPart.Parent = m
+
+	for _ = 1, 2 do
+		local runner = Instance.new("Part")
+		runner.Name = "Runner"
+		runner.Size = S.Runner
+		runner.Color = runnerColor
+		runner.Material = Enum.Material.SmoothPlastic
+		runner.Anchored = true
+		runner.CanCollide = false
+		runner.CanTouch = false
+		runner.CanQuery = false
+		runner.CastShadow = false
+		runner.Parent = m
+	end
+
+	-- Dummy Rider: тело и голова
+	local torso = Instance.new("Part")
+	torso.Name = "Torso"
+	torso.Size = Vector3.new(1.8, 1.8, 1.2)
+	torso.Color = color
+	torso.Material = Enum.Material.SmoothPlastic
+	torso.Anchored = true
+	torso.CanCollide = false
+	torso.CanTouch = false
+	torso.CanQuery = false
+	torso.CastShadow = false
+	torso.Parent = m
+
+	local head = Instance.new("Part")
+	head.Name = "Head"
+	head.Shape = Enum.PartType.Ball
+	head.Size = Vector3.new(1.3, 1.3, 1.3)
+	head.Color = Color3.fromRGB(240, 200, 160)
+	head.Material = Enum.Material.SmoothPlastic
+	head.Anchored = true
+	head.CanCollide = false
+	head.CanTouch = false
+	head.CanQuery = false
+	head.CastShadow = false
+	head.Parent = m
+
+	-- Имя соперника сверху
+	local bb = Instance.new("BillboardGui")
+	bb.Size = UDim2.fromScale(4, 1.2)
+	bb.StudsOffset = Vector3.new(0, 3.2, 0)
+	bb.AlwaysOnTop = true
+	bb.MaxDistance = 160
+	bb.Adornee = rootPart
+
+	local nameLbl = Instance.new("TextLabel")
+	nameLbl.Size = UDim2.fromScale(1, 1)
+	nameLbl.BackgroundTransparency = 1
+	nameLbl.Text = name
+	nameLbl.Font = Enum.Font.FredokaOne
+	nameLbl.TextScaled = true
+	nameLbl.TextColor3 = color
+	nameLbl.TextStrokeTransparency = 0.2
+	nameLbl.Parent = bb
+	bb.Parent = m
+
+	return m
+end
+
+local function setRivalPose(rival: Rival)
+	local surface = Track.Frame(track, rival.state.s, rival.state.d)
+		+ Vector3.new(0, rival.state.air, 0)
+	local cf = surface
+		* CFrame.new(0, S.RideHeight, 0)
+		* CFrame.Angles(
+			0,
+			-(rival.state.heading + (rival.state.heading - rival.state.slide) * S.DriftVisual),
+			0
+		)
+
+	local rootPart = rival.model:FindFirstChild("Root") :: Part?
+	if rootPart then
+		rootPart.CFrame = cf * CFrame.new(0, S.Runner.Y + S.Board.Y / 2, 0)
+	end
+	local torso = rival.model:FindFirstChild("Torso") :: Part?
+	if torso then
+		torso.CFrame = cf * CFrame.new(0, 1.8, 0.2)
+	end
+	local head = rival.model:FindFirstChild("Head") :: Part?
+	if head then
+		head.CFrame = cf * CFrame.new(0, 3.0, 0.2)
+	end
+
+	local runners: { Part } = {}
+	for _, child in rival.model:GetChildren() do
+		if child.Name == "Runner" and child:IsA("Part") then
+			table.insert(runners, child)
+		end
+	end
+	for i, side in { -1, 1 } do
+		local rPart = runners[i]
+		if rPart then
+			local x = side * (S.Board.X / 2 - S.Runner.X / 2)
+			rPart.CFrame = cf * CFrame.new(x, S.Runner.Y / 2, 0)
+		end
+	end
+
+	if rival.shieldPart then
+		rival.shieldPart.CFrame = cf
+	end
+end
+
+-- Использование предмета игроком (ракета, салют, буст, щит)
+local function usePlayerItem()
+	if not playerItem or isRoulette then
+		return
+	end
+
+	local item = playerItem
+	playerItem = nil
+	Hud.SetPowerup(nil, false, usePlayerItem)
+
+	if item == "Rocket" then
+		local nearestAhead: Rival? = nil
+		local minGap = math.huge
+		for _, r in rivals do
+			local gap = r.state.s - state.s
+			if gap > 5 and gap < minGap and gap < P.Rocket.MaxRange then
+				minGap = gap
+				nearestAhead = r
+			end
+		end
+		local targetId = if nearestAhead then nearestAhead.id else nil
+		PowerupEffects.SpawnRocket(track, state.s + 10, state.d, targetId)
+	elseif item == "Fireworks" then
+		PowerupEffects.SpawnFireworks(track, state.s + 12, state.d)
+	elseif item == "Boost" then
+		boostTime = P.Boost.Duration
+		state.v += P.Boost.ExtraSpeed
+		SledView.Land(1.0)
+	elseif item == "Shield" then
+		shieldActive = true
+		if not shieldPart then
+			shieldPart = PowerupEffects.CreateShield(Workspace)
+		end
+	end
+end
+
+local function initRivals()
+	for _, r in rivals do
+		r.model:Destroy()
+		if r.shieldPart then
+			r.shieldPart:Destroy()
+		end
+	end
+	table.clear(rivals)
+
+	for i = 1, RV.Count do
+		local name = RV.Names[i] or ("Racer " .. i)
+		local color = RV.SledColors[i] or Color3.fromRGB(200, 200, 200)
+		local runnerColor = RV.RunnerColors[i] or Color3.fromRGB(40, 40, 40)
+		local offset = RV.StartOffsets[i] or (i * 4)
+		local model = createRivalModel(name, color, runnerColor)
+		local rState = SledSim.New(track, track.startS)
+		rState.d = offset
+
+		local rival: Rival = {
+			id = "rival_" .. i,
+			name = name,
+			state = rState,
+			model = model,
+			color = color,
+			startOffset = offset,
+			item = nil,
+			itemCooldown = 0,
+			shieldActive = false,
+			shieldPart = nil,
+			boostTime = 0,
+			spinOutTime = 0,
+		}
+		table.insert(rivals, rival)
+		setRivalPose(rival)
+	end
+end
+
 local function restart()
 	place(track.startS, 0)
 	camYaw = 0 -- высоту и зум игрок выбрал сам: их не сбрасываем
 	runTime = 0
 	blink = 0
+
+	playerItem = nil
+	isRoulette = false
+	rouletteTime = 0
+	shieldActive = false
+	if shieldPart then
+		shieldPart:Destroy()
+		shieldPart = nil
+	end
+	boostTime = 0
+	spinOutTime = 0
+	playerRank = 1
+
+	Powerups.ResetBoxes(boxes)
+	for _, r in rivals do
+		SledSim.Place(track, r.state, track.startS, 0)
+		r.state.d = r.startOffset
+		r.item = nil
+		r.itemCooldown = 0
+		r.shieldActive = false
+		if r.shieldPart then
+			r.shieldPart:Destroy()
+			r.shieldPart = nil
+		end
+		r.boostTime = 0
+		r.spinOutTime = 0
+		setRivalPose(r)
+	end
+
+	Hud.SetPowerup(nil, false, usePlayerItem)
+	Hud.SetRank(1, #rivals + 1)
 	Hud.Result(nil, nil)
 	setMode("countdown")
 end
@@ -225,8 +484,200 @@ local function simulate(dt: number, steer: number, brake: boolean)
 end
 
 local function updateRun(dt: number, steer: number, brake: boolean)
+	-- Стан от ракеты/салюта: крутит санки
+	if spinOutTime > 0 then
+		spinOutTime -= dt
+		steer = 0
+		brake = false
+		state.yaw = P.Rocket.SpinSpeed
+	end
+
+	-- Нитро-ускорение
+	if boostTime > 0 then
+		boostTime -= dt
+		state.v = math.max(state.v, 115)
+	end
+
 	simulate(dt, steer, brake)
 	runTime += dt
+
+	-- Подбор боксов игроком
+	for _, box in boxes do
+		if
+			box.active
+			and math.abs(state.s - box.s) < P.BoxRadius
+			and math.abs(state.d - box.d) < P.BoxRadius
+		then
+			box.active = false
+			box.cooldown = P.BoxRespawn
+			PowerupEffects.PopBox(box.id)
+			if not playerItem and not isRoulette then
+				isRoulette = true
+				rouletteTime = P.RouletteDuration
+				Hud.SetPowerup("?", true, usePlayerItem)
+			end
+		end
+	end
+
+	-- Прокрутка рулетки предмета
+	if isRoulette then
+		rouletteTime -= dt
+		if rouletteTime <= 0 then
+			isRoulette = false
+			playerItem = Powerups.RollItem(playerRank, #rivals + 1)
+			Hud.SetPowerup(playerItem, false, usePlayerItem)
+		end
+	end
+
+	-- Обновление щита игрока
+	if shieldPart then
+		if shieldActive then
+			local surf = Track.Frame(track, state.s, state.d)
+			shieldPart.CFrame = surf * CFrame.new(0, S.RideHeight, 0)
+		else
+			shieldPart:Destroy()
+			shieldPart = nil
+		end
+	end
+
+	-- Симуляция соперников
+	for _, r in rivals do
+		local rSteer, rBrake = 0, false
+		if r.spinOutTime > 0 then
+			r.spinOutTime -= dt
+			r.state.yaw = P.Rocket.SpinSpeed
+		else
+			rSteer, rBrake = SledBot.Control(track, r.state, SledConfig.Physics)
+		end
+
+		if r.boostTime > 0 then
+			r.boostTime -= dt
+			r.state.v = math.max(r.state.v, 115)
+		end
+
+		SledSim.Step(track, r.state, SledConfig.Physics, rSteer, rBrake, dt)
+		if r.state.fell then
+			SledSim.Place(
+				track,
+				r.state,
+				Track.CheckpointBefore(track, r.state.s),
+				SledConfig.Run.RespawnSpeed
+			)
+		end
+
+		-- Соперники подбирают боксы
+		for _, box in boxes do
+			if
+				box.active
+				and math.abs(r.state.s - box.s) < P.BoxRadius
+				and math.abs(r.state.d - box.d) < P.BoxRadius
+			then
+				box.active = false
+				box.cooldown = P.BoxRespawn
+				PowerupEffects.PopBox(box.id)
+				if not r.item then
+					r.item = Powerups.RollItem(2, #rivals + 1)
+					r.itemCooldown = math.random(15, 30) / 10
+				end
+			end
+		end
+
+		-- Использование предметов соперниками
+		if r.itemCooldown > 0 then
+			r.itemCooldown -= dt
+		elseif r.item then
+			local rItem = r.item
+			r.item = nil
+			if rItem == "Rocket" then
+				local targetId: string? = if state.s > r.state.s then "player" else nil
+				if not targetId then
+					for _, other in rivals do
+						if other.id ~= r.id and other.state.s > r.state.s then
+							targetId = other.id
+							break
+						end
+					end
+				end
+				PowerupEffects.SpawnRocket(track, r.state.s + 10, r.state.d, targetId)
+			elseif rItem == "Fireworks" then
+				PowerupEffects.SpawnFireworks(track, r.state.s + 12, r.state.d)
+			elseif rItem == "Boost" then
+				r.boostTime = P.Boost.Duration
+				r.state.v += P.Boost.ExtraSpeed
+			elseif rItem == "Shield" then
+				r.shieldActive = true
+				if not r.shieldPart then
+					r.shieldPart = PowerupEffects.CreateShield(r.model)
+				end
+			end
+		end
+
+		setRivalPose(r)
+	end
+
+	-- Обновление снарядов и попаданий
+	local racerTargets = {
+		{
+			id = "player",
+			s = state.s,
+			d = state.d,
+			onHit = function()
+				if shieldActive then
+					shieldActive = false
+					if shieldPart then
+						shieldPart:Destroy()
+						shieldPart = nil
+					end
+					PowerupEffects.Explosion(Track.Frame(track, state.s, state.d).Position, true)
+				else
+					spinOutTime = P.Rocket.StunDuration
+					state.v *= P.Rocket.SpeedFactor
+					state.yaw = P.Rocket.SpinSpeed
+					camKick = C.HitKick * 1.5
+					SledView.Land(1.0)
+				end
+			end,
+		},
+	}
+	for _, r in rivals do
+		table.insert(racerTargets, {
+			id = r.id,
+			s = r.state.s,
+			d = r.state.d,
+			onHit = function()
+				if r.shieldActive then
+					r.shieldActive = false
+					if r.shieldPart then
+						r.shieldPart:Destroy()
+						r.shieldPart = nil
+					end
+					PowerupEffects.Explosion(
+						Track.Frame(track, r.state.s, r.state.d).Position,
+						true
+					)
+				else
+					r.spinOutTime = P.Rocket.StunDuration
+					r.state.v *= P.Rocket.SpeedFactor
+					r.state.yaw = P.Rocket.SpinSpeed
+				end
+			end,
+		})
+	end
+	PowerupEffects.UpdateProjectiles(track, dt, racerTargets)
+
+	-- Анимация боксов
+	PowerupEffects.UpdateBoxes(boxes, dt, clock)
+
+	-- Расчёт позиции в гонке
+	local aheadCount = 0
+	for _, r in rivals do
+		if r.state.s > state.s then
+			aheadCount += 1
+		end
+	end
+	playerRank = aheadCount + 1
+	Hud.SetRank(playerRank, #rivals + 1)
+
 	if state.airborne then
 		airTime += dt
 	elseif airTime > 0 then
@@ -444,6 +895,8 @@ end
 
 SledView.Create()
 Hud.Create()
+PowerupEffects.Init(track)
+initRivals()
 Hud.Tuning(params :: any, applyPreset, restart)
 Hud.Result(nil, nil)
 
@@ -457,6 +910,12 @@ UserInputService.InputBegan:Connect(function(input, processed)
 		autopilot = not autopilot
 	elseif input.KeyCode == Enum.KeyCode.C then
 		camYaw, camPitch, camZoom = 0, C.OrbitPitchDefault, 1 -- камера обратно за спину
+	elseif
+		input.KeyCode == Enum.KeyCode.E
+		or input.KeyCode == Enum.KeyCode.Space
+		or input.KeyCode == Enum.KeyCode.F
+	then
+		usePlayerItem()
 	end
 end)
 

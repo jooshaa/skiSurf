@@ -82,7 +82,7 @@ local function pyramid(
 	end
 end
 
-local function loadMesh(mesh: string, texture: string): MeshPart?
+function Scenery.LoadMesh(mesh: string, texture: string): MeshPart?
 	if mesh == "" then
 		return nil
 	end
@@ -322,8 +322,8 @@ local function buildTrees(
 
 	local pineAsset = SledConfig.Assets.Pine
 	local rockAsset = SledConfig.Assets.Rock
-	local pine = loadMesh(pineAsset.mesh, pineAsset.texture)
-	local rock = loadMesh(rockAsset.mesh, rockAsset.texture)
+	local pine = Scenery.LoadMesh(pineAsset.mesh, pineAsset.texture)
+	local rock = Scenery.LoadMesh(rockAsset.mesh, rockAsset.texture)
 
 	for _, shoulder in shoulders do
 		if shoulder.width >= S.TreeMinShoulder then
@@ -572,7 +572,7 @@ end
 local function buildYetis(parent: Instance, track: Track.Data, shoulders: { Shoulder }): { Vector3 }
 	local placed: { Vector3 } = {}
 	local asset = SledConfig.Assets.Yeti
-	local yeti = loadMesh(asset.mesh, asset.texture)
+	local yeti = Scenery.LoadMesh(asset.mesh, asset.texture)
 	if not yeti then
 		return placed
 	end
@@ -608,7 +608,14 @@ end
 
 -- Лес и валуны. Ждёт загрузки моделей из сети, поэтому вызывается после того, как гора и
 -- точка появления уже в мире.
-function Scenery.Plant(parent: Instance, track: Track.Data, shoulders: { Shoulder })
+function Scenery.Plant(parent: Instance, track: Track.Data, all: { Shoulder })
+	-- Склоны под сводами пещер пустые: ель проткнула бы стену
+	local shoulders: { Shoulder } = {}
+	for _, shoulder in all do
+		if Track.CaveDepth(track, shoulder.s) < -S.CaveGuard then
+			table.insert(shoulders, shoulder)
+		end
+	end
 	local signs = Instance.new("Model")
 	signs.Name = "Signs"
 	buildSigns(signs, track, shoulders)
