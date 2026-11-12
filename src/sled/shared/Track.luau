@@ -132,11 +132,20 @@ function Track.At(data: Data, s: number): (Vector3, Vector3, Vector3, number, nu
 		kappa
 end
 
--- Система координат поверхности в точке (s, d): X вправо, Y вверх от снега, -Z по ходу трассы
+-- Система координат поверхности в точке (s, d): X вправо, Y вверх от снега, -Z по ходу трассы.
+-- За пределами полотна (|d| > width/2) поверхность плавно уходит вниз по снежному склону обочины.
 function Track.Frame(data: Data, s: number, d: number): CFrame
-	local pos, tangent, right = Track.At(data, s)
+	local pos, tangent, right, width = Track.At(data, s)
 	local up = (-tangent):Cross(right).Unit
-	return CFrame.fromMatrix(pos + right * d, up:Cross(-tangent), up, -tangent)
+	local base = CFrame.fromMatrix(pos + right * d, up:Cross(-tangent), up, -tangent)
+	local over = math.abs(d) - width / 2
+	if over > 0 then
+		local side = math.sign(d)
+		local drop = over * 0.24 + math.max(0, over - 5) ^ 2 * 0.065
+		local roll = math.clamp(over * 0.038, 0, 0.65)
+		return (base - Vector3.yAxis * drop) * CFrame.Angles(0, 0, -side * roll)
+	end
+	return base
 end
 
 -- Самый крутой поворот на отрезке впереди

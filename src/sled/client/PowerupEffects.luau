@@ -121,6 +121,8 @@ local function basePart(part: BasePart)
 	part.CastShadow = false
 end
 
+local partPool: { Part } = {}
+
 local function makePart(
 	parent: Instance,
 	name: string,
@@ -141,6 +143,44 @@ local function makePart(
 	p.Material = mat or Enum.Material.SmoothPlastic
 	basePart(p)
 	p.Parent = parent
+	return p
+end
+
+-- Пул объектов (Object Pooling) для взрывов, осколков и ударных колец, чтобы не вызывать
+-- Instance.new / Destroy в разгар гонки и исключить микро-фризы сборщика мусора (GC)
+local function acquirePoolPart(
+	parent: Instance,
+	name: string,
+	size: Vector3,
+	cf: CFrame,
+	color: Color3,
+	mat: Enum.Material?,
+	shape: Enum.PartType?,
+	lifetime: number
+): Part
+	local p = table.remove(partPool)
+	if not p then
+		p = Instance.new("Part")
+		basePart(p)
+	end
+	p.Name = name
+	p.Shape = shape or Enum.PartType.Block
+	p.Size = size
+	p.CFrame = cf
+	p.Color = color
+	p.Material = mat or Enum.Material.SmoothPlastic
+	p.Transparency = 0
+	p.Parent = parent
+
+	task.delay(lifetime, function()
+		if p.Parent ~= nil then
+			p:ClearAllChildren()
+			p.Transparency = 1
+			p.CFrame = CFrame.new(0, -500, 0)
+			table.insert(partPool, p)
+		end
+	end)
+
 	return p
 end
 
@@ -1181,9 +1221,20 @@ function PowerupEffects.Init(track: Track.Data)
 	table.clear(activeRockets)
 	table.clear(activeFireworks)
 	table.clear(activeSnowballs)
+	table.clear(partPool)
 	heldModel = nil
 	heldKind = nil
 	lockOnModel = nil
+
+	-- Предварительный прогрев пула объектов (40 деталей) на старте, чтобы во время гонки не выделять память
+	for _ = 1, 40 do
+		local p = Instance.new("Part")
+		basePart(p)
+		p.Transparency = 1
+		p.CFrame = CFrame.new(0, -500, 0)
+		p.Parent = fxFolder
+		table.insert(partPool, p)
+	end
 
 	local boxes = Powerups.GetBoxes(track)
 	for _, box in boxes do
@@ -1264,12 +1315,13 @@ local function setBoxVisible(vis: any, visible: boolean)
 	vis.particles.Enabled = visible
 end
 
--- Анимация вращения подарков, их перезарядки и магнитного притяжения к санкам игрока
+-- Анимация вращения подарков, их перезарядки и магнитного притяжения к санкам игрока (с LOD-оптимизацией по дистанции)
 function PowerupEffects.UpdateBoxes(
 	boxes: { Powerups.Box },
 	dt: number,
 	clock: number,
-	playerWorldPos: Vector3?
+	playerWorldPos: Vector3?,
+	playerS: number?
 )
 	local magnetRad = P.BoxMagnetRadius or 16.5
 
@@ -1289,6 +1341,17 @@ function PowerupEffects.UpdateBoxes(
 		end
 
 		if box.active then
+			-- Distance Culling (LOD): не крутим матрицы CFrame и не испускаем частицы у далёких коробок
+			if playerS and (box.s < playerS - 80 or box.s > playerS + 380) then
+				if vis.particles.Enabled then
+					vis.particles.Enabled = false
+				end
+				continue
+			end
+			if not vis.particles.Enabled then
+				vis.particles.Enabled = true
+			end
+
 			local bob = math.sin(clock * P.BobRate + box.id * 1.3) * P.BobHeight
 			local targetPos = vis.origPos + Vector3.new(0, bob, 0)
 
@@ -1310,7 +1373,7 @@ function PowerupEffects.UpdateBoxes(
 	end
 end
 
--- Эффект подбора подарка (взрыв золотых звёзд, лент и расширяющаяся волна)
+-- Эффект подбора подарка (взрыв золотых звёзд, лент и расширяющаяся волна через Object Pool)
 function PowerupEffects.PopBox(boxId: number)
 	local vis = boxVisuals[boxId]
 	if not vis then
@@ -1320,14 +1383,15 @@ function PowerupEffects.PopBox(boxId: number)
 	local popPos = vis.root.Position
 	setBoxVisible(vis, false)
 
-	local ring = makePart(
+	local ring = acquirePoolPart(
 		fxFolder,
 		"PickupRing",
 		Vector3.new(0.3, 3.5, 3.5),
 		CFrame.new(popPos) * CFrame.Angles(0, 0, math.pi / 2),
 		Color3.fromRGB(255, 225, 60),
 		Enum.Material.Neon,
-		Enum.PartType.Cylinder
+		Enum.PartType.Cylinder,
+		0.36
 	)
 	TweenService
 		:Create(ring, TweenInfo.new(0.32, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
@@ -1335,10 +1399,17 @@ function PowerupEffects.PopBox(boxId: number)
 			Transparency = 1,
 		})
 		:Play()
-	Debris:AddItem(ring, 0.35)
 
-	local burstPart =
-		makePart(fxFolder, "PopBurst", Vector3.one, CFrame.new(popPos), Color3.new(1, 1, 1))
+	local burstPart = acquirePoolPart(
+		fxFolder,
+		"PopBurst",
+		Vector3.one,
+		CFrame.new(popPos),
+		Color3.new(1, 1, 1),
+		Enum.Material.SmoothPlastic,
+		Enum.PartType.Block,
+		1.0
+	)
 	burstPart.Transparency = 1
 
 	local popEmitter = Instance.new("ParticleEmitter")
@@ -1359,7 +1430,6 @@ function PowerupEffects.PopBox(boxId: number)
 	popEmitter.Parent = burstPart
 
 	popEmitter:Emit(35)
-	Debris:AddItem(burstPart, 1.2)
 end
 
 -- ============================================================================
@@ -1476,14 +1546,15 @@ function PowerupEffects.SpawnSnowballs(
 		PowerupEffects.BuildSnowballModel(model, frame, radius)
 
 		-- Снежное облако в точке появления шара у обочины/горы
-		local cloud = makePart(
+		local cloud = acquirePoolPart(
 			fxFolder,
 			"BlizzardCloud_" .. nextProjId,
 			Vector3.new(12, 5, 12),
 			frame * CFrame.new(0, 10, 0),
 			Color3.fromRGB(215, 238, 255),
 			Enum.Material.Snow,
-			Enum.PartType.Ball
+			Enum.PartType.Ball,
+			1.25
 		)
 		cloud.Transparency = 0.25
 		TweenService
@@ -1492,7 +1563,6 @@ function PowerupEffects.SpawnSnowballs(
 				Transparency = 1,
 			})
 			:Play()
-		Debris:AddItem(cloud, 1.25)
 
 		local proj: SnowballProjectile = {
 			id = nextProjId,
@@ -1513,16 +1583,17 @@ function PowerupEffects.SpawnSnowballs(
 	end
 end
 
--- Мощный ледяной взрыв при столкновении с гигантским снежным шаром
+-- Мощный ледяной взрыв при столкновении с гигантским снежным шаром (через Object Pool)
 function PowerupEffects.SnowExplosion(position: Vector3)
-	local flash = makePart(
+	local flash = acquirePoolPart(
 		fxFolder,
 		"SnowFlash",
 		Vector3.new(6, 6, 6),
 		CFrame.new(position),
 		Color3.fromRGB(160, 235, 255),
 		Enum.Material.Neon,
-		Enum.PartType.Ball
+		Enum.PartType.Ball,
+		0.42
 	)
 	flash.Transparency = 0.15
 	TweenService
@@ -1531,19 +1602,19 @@ function PowerupEffects.SnowExplosion(position: Vector3)
 			Transparency = 1,
 		})
 		:Play()
-	Debris:AddItem(flash, 0.42)
 
 	for i = 1, 10 do
 		local phi = (i - 1) * (math.pi * 2 / 10)
 		local dir = Vector3.new(math.cos(phi), 0.45 + (i % 3) * 0.2, math.sin(phi)).Unit
-		local chunk = makePart(
+		local chunk = acquirePoolPart(
 			fxFolder,
 			"SnowChunk_" .. i,
 			Vector3.new(2.2, 2.2, 2.2),
 			CFrame.new(position),
 			if i % 2 == 0 then Color3.fromRGB(245, 250, 255) else Color3.fromRGB(100, 225, 255),
 			if i % 2 == 0 then Enum.Material.Snow else Enum.Material.Neon,
-			Enum.PartType.Ball
+			Enum.PartType.Ball,
+			0.55
 		)
 		TweenService
 			:Create(chunk, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
@@ -1552,11 +1623,10 @@ function PowerupEffects.SnowExplosion(position: Vector3)
 				Transparency = 1,
 			})
 			:Play()
-		Debris:AddItem(chunk, 0.55)
 	end
 end
 
--- Мощный многослойный 3D-взрыв (ударная волна-тор + огненный шар + разлетающиеся 3D-звёзды/осколки)
+-- Мощный многослойный 3D-взрыв (ударная волна-тор + огненный шар + разлетающиеся 3D-звёзды/осколки через Object Pool)
 function PowerupEffects.Explosion(position: Vector3, isFirework: boolean)
 	local boomPart = makePart(
 		fxFolder,
@@ -1572,14 +1642,15 @@ function PowerupEffects.Explosion(position: Vector3, isFirework: boolean)
 		else Color3.fromRGB(255, 165, 35)
 
 	-- 1. Расширяющаяся световая сфера
-	local flash = makePart(
+	local flash = acquirePoolPart(
 		fxFolder,
 		"ExplosionFlash",
 		Vector3.new(4, 4, 4),
 		CFrame.new(position),
 		mainCol,
 		Enum.Material.Neon,
-		Enum.PartType.Ball
+		Enum.PartType.Ball,
+		0.38
 	)
 	flash.Transparency = 0.15
 	TweenService
@@ -1588,17 +1659,17 @@ function PowerupEffects.Explosion(position: Vector3, isFirework: boolean)
 			Transparency = 1,
 		})
 		:Play()
-	Debris:AddItem(flash, 0.38)
 
 	-- 2. Горизонтальное ударное кольцо по трассе (Shockwave Ring)
-	local shockRing = makePart(
+	local shockRing = acquirePoolPart(
 		fxFolder,
 		"ShockRing",
 		Vector3.new(0.45, 4, 4),
 		CFrame.new(position) * CFrame.Angles(0, 0, math.pi / 2),
 		if isFirework then Color3.fromRGB(255, 235, 80) else Color3.fromRGB(255, 110, 25),
 		Enum.Material.Neon,
-		Enum.PartType.Cylinder
+		Enum.PartType.Cylinder,
+		0.45
 	)
 	TweenService
 		:Create(shockRing, TweenInfo.new(0.42, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out), {
@@ -1606,7 +1677,6 @@ function PowerupEffects.Explosion(position: Vector3, isFirework: boolean)
 			Transparency = 1,
 		})
 		:Play()
-	Debris:AddItem(shockRing, 0.45)
 
 	-- 3. Разлетающиеся 3D-звёзды салюта или огненные 3D-осколки ракеты
 	local shardCount = if isFirework then 12 else 8
@@ -1622,14 +1692,15 @@ function PowerupEffects.Explosion(position: Vector3, isFirework: boolean)
 			then FIREWORK_PALETTE[(i - 1) % #FIREWORK_PALETTE + 1]
 			else Color3.fromRGB(255, 190, 50)
 
-		local shard = makePart(
+		local shard = acquirePoolPart(
 			fxFolder,
 			"BurstShard_" .. i,
 			if isFirework then Vector3.new(1.5, 1.5, 1.5) else Vector3.new(1.2, 1.2, 1.2),
 			CFrame.new(position),
 			shardCol,
 			Enum.Material.Neon,
-			if isFirework then Enum.PartType.Ball else Enum.PartType.Block
+			if isFirework then Enum.PartType.Ball else Enum.PartType.Block,
+			0.52
 		)
 		attachRibbonTrail(
 			shard,
@@ -1647,7 +1718,6 @@ function PowerupEffects.Explosion(position: Vector3, isFirework: boolean)
 				Transparency = 1,
 			})
 			:Play()
-		Debris:AddItem(shard, 0.52)
 	end
 
 	-- 4. Густое облако искр

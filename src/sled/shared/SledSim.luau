@@ -31,8 +31,10 @@ local O = SledConfig.Obstacles
 local SledSim = {}
 
 local function groundHeight(track: Track.Data, s: number, d: number): number
-	local pos, _, right = Track.At(track, s)
-	return pos.Y + right.Y * d
+	local pos, _, right, width = Track.At(track, s)
+	local over = math.abs(d) - width / 2
+	local drop = if over > 0 then over * 0.24 + math.max(0, over - 5) ^ 2 * 0.065 else 0
+	return pos.Y + right.Y * d - drop
 end
 
 -- Поставить санки на трассу в точке s
@@ -102,8 +104,8 @@ function SledSim.Step(
 		steer = 0 -- NaN от ввода не должен попасть в расчёт
 	end
 	steer = math.clamp(steer, -1, 1)
-	local pos, tangent, right, _, kappa = Track.At(track, state.s)
-	local heightBefore = pos.Y + right.Y * state.d
+	local _, tangent, _, _, kappa = Track.At(track, state.s)
+	local heightBefore = groundHeight(track, state.s, state.d)
 	local grounded = not state.airborne
 
 	-- Руль поворачивает нос; движение догоняет нос со скоростью сцепления
@@ -144,17 +146,32 @@ function SledSim.Step(
 	state.s += ds
 	state.d += state.v * math.sin(state.slide) * dt
 
-	-- Край трассы: в режиме OpenEdges (как в Beach Buggy Racing) бортиков нет — выезд за границу
-	-- полотна приводит к вылету в обрыв и возрождению на чекпоинте.
-	local posAfter, _, rightAfter, widthAfter = Track.At(track, state.s)
+	-- Край трассы: в режиме OpenEdges за краем дороги идёт живой наклонный снежный склон обочины!
+	-- Если чуть заступил за край (до 10.5 студов), санки кренятся на рыхлом снегу и их тянет вниз по склону,
+	-- но можно вырулить обратно. Если скатился дальше по склону (> 10.5 студов) — срывается в пропасть.
+	local _, _, _, widthAfter = Track.At(track, state.s)
 	local limit = widthAfter / 2 - p.EdgeInset
 	state.bank = false
 	if p.OpenEdges then
-		if math.abs(state.d) > widthAfter / 2 + 1.5 then
-			state.fell = true
-			return
+		local over = math.abs(state.d) - widthAfter / 2
+		if over > 0 then
+			local side = math.sign(state.d)
+			state.bank = true -- пускаем снежную пыль из-под полозьев на обочине
+			-- Рыхлый снег слегка притормаживает, а уклон обочины физически стягивает санки вниз по склону
+			state.v *= math.exp(-0.35 * dt)
+			state.d += side * (2.5 + over * 1.1) * dt
+			local slopePull = math.clamp(0.22 + over * 0.09, 0.22, 1.5)
+			state.slide = math.clamp(state.slide + side * slopePull * dt, -p.MaxSlide, p.MaxSlide)
+			state.heading =
+				math.clamp(state.heading + side * slopePull * 0.65 * dt, -p.MaxSlide, p.MaxSlide)
+			if over > 10.5 then
+				state.fell = true
+				return
+			end
+			state.bankFree = 0
+		else
+			state.bankFree += dt
 		end
-		state.bankFree += dt
 	elseif math.abs(state.d) > limit then
 		local side = math.sign(state.d)
 		state.d = side * limit
@@ -220,7 +237,7 @@ function SledSim.Step(
 	state.slide -= turned
 
 	-- Высота: если снег уходит вниз быстрее свободного падения, санки летят
-	local ground = posAfter.Y + rightAfter.Y * state.d
+	local ground = groundHeight(track, state.s, state.d)
 	local free = state.y + state.w * dt - 0.5 * p.AirGravity * dt * dt
 	if free > ground then
 		state.y = free
