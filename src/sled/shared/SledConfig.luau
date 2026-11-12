@@ -330,6 +330,21 @@ SledConfig.Assets = {
 		texture = "rbxassetid://78869310967314",
 		width = 11, -- ширина валуна в студах при масштабе 1
 	},
+	MysteryBox = {
+		mesh = "rbxassetid://70369734584582",
+		texture = "rbxassetid://78510357381206",
+		size = 3.6, -- размер 3D-куба со знаком вопроса
+	},
+	Rocket = {
+		mesh = "rbxassetid://73370285848875",
+		texture = "rbxassetid://128867327938659",
+		length = 4.2, -- длина 3D-ракеты в полёте
+	},
+	Firework = {
+		mesh = "rbxassetid://99070122163489",
+		texture = "rbxassetid://87574745297829",
+		length = 3.2, -- длина 3D-петарды салюта
+	},
 }
 
 -- Указатели поворота: щиты со стрелками на внешней стороне дуги

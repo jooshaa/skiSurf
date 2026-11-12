@@ -210,70 +210,189 @@ local function place(s: number, speed: number)
 	SledView.Cut()
 end
 
--- Создание 3D-модели санок для соперника-бота
+-- Создание детализированной 3D-модели санок и гонщика для соперника-бота
 local function createRivalModel(name: string, color: Color3, runnerColor: Color3): Model
 	local m = Instance.new("Model")
 	m.Name = "Rival_" .. name
-	m.Parent = Workspace
 
 	local rootPart = Instance.new("Part")
 	rootPart.Name = "Root"
-	rootPart.Size = S.Board
-	rootPart.Color = color
-	rootPart.Material = Enum.Material.SmoothPlastic
+	rootPart.Size = Vector3.one
+	rootPart.Transparency = 1
 	rootPart.Anchored = true
 	rootPart.CanCollide = false
 	rootPart.CanTouch = false
 	rootPart.CanQuery = false
 	rootPart.CastShadow = false
+	rootPart.CFrame = CFrame.new()
 	rootPart.Parent = m
+	m.PrimaryPart = rootPart
 
-	for _ = 1, 2 do
-		local runner = Instance.new("Part")
-		runner.Name = "Runner"
-		runner.Size = S.Runner
-		runner.Color = runnerColor
-		runner.Material = Enum.Material.SmoothPlastic
-		runner.Anchored = true
-		runner.CanCollide = false
-		runner.CanTouch = false
-		runner.CanQuery = false
-		runner.CastShadow = false
-		runner.Parent = m
+	local function addPart(
+		partName: string,
+		size: Vector3,
+		offset: CFrame,
+		partColor: Color3,
+		mat: Enum.Material?
+	): Part
+		local p = Instance.new("Part")
+		p.Name = partName
+		p.Size = size
+		p.CFrame = offset
+		p.Color = partColor
+		p.Material = mat or Enum.Material.SmoothPlastic
+		p.Anchored = true
+		p.CanCollide = false
+		p.CanTouch = false
+		p.CanQuery = false
+		p.CastShadow = false
+		p.Parent = m
+		return p
 	end
 
-	-- Dummy Rider: тело и голова
-	local torso = Instance.new("Part")
-	torso.Name = "Torso"
-	torso.Size = Vector3.new(1.8, 1.8, 1.2)
-	torso.Color = color
-	torso.Material = Enum.Material.SmoothPlastic
-	torso.Anchored = true
-	torso.CanCollide = false
-	torso.CanTouch = false
-	torso.CanQuery = false
-	torso.CastShadow = false
-	torso.Parent = m
+	local woodColor = Color3.fromRGB(222, 184, 135)
+	local darkColor = Color3.fromRGB(38, 40, 48)
+	local skinColor = Color3.fromRGB(255, 218, 185)
+	local visorColor = Color3.fromRGB(0, 195, 255)
+	local stripeColor = Color3.fromRGB(245, 245, 250)
 
-	local head = Instance.new("Part")
-	head.Name = "Head"
-	head.Shape = Enum.PartType.Ball
-	head.Size = Vector3.new(1.3, 1.3, 1.3)
-	head.Color = Color3.fromRGB(240, 200, 160)
-	head.Material = Enum.Material.SmoothPlastic
-	head.Anchored = true
-	head.CanCollide = false
-	head.CanTouch = false
-	head.CanQuery = false
-	head.CastShadow = false
-	head.Parent = m
+	local scale = 0.68
+	local yShift = 3.35
+
+	local function xf(
+		px: number,
+		py: number,
+		pz: number,
+		rx: number?,
+		ry: number?,
+		rz: number?
+	): CFrame
+		local pos = Vector3.new(px * scale, py * scale + yShift, pz * scale)
+		if rx or ry or rz then
+			return CFrame.new(pos)
+				* CFrame.fromOrientation(math.rad(rx or 0), math.rad(ry or 0), math.rad(rz or 0))
+		end
+		return CFrame.new(pos)
+	end
+
+	-- 1. Деревянный настил из 5 планок + 3 поперечины + спинка
+	for i = -2, 2 do
+		local slatColor = if math.abs(i) == 2 then color else woodColor
+		addPart(
+			"Slat",
+			Vector3.new(0.72, 0.20, 8.00) * scale,
+			xf(i * 0.82, -3.90, 0),
+			slatColor,
+			Enum.Material.Wood
+		)
+	end
+	for _, zCross in { -3.0, 0.0, 3.0 } do
+		addPart(
+			"Crossbeam",
+			Vector3.new(4.00, 0.20, 0.40) * scale,
+			xf(0, -4.10, zCross),
+			woodColor,
+			Enum.Material.Wood
+		)
+	end
+	addPart(
+		"Backrest",
+		Vector3.new(1.40, 1.00, 0.24) * scale,
+		xf(0, -3.30, 3.50),
+		color,
+		Enum.Material.Wood
+	)
+
+	-- 2. Стальные полозья с загнутыми носами и стойками
+	for _, side in { -1, 1 } do
+		local rx = side * 1.50
+		addPart(
+			"MainRunner",
+			Vector3.new(8.50, 0.30, 0.30) * scale,
+			xf(rx, -4.80, 0.25, 0, 90, 0),
+			runnerColor,
+			Enum.Material.Metal
+		)
+		addPart(
+			"FrontCurl",
+			Vector3.new(0.76, 0.75, 0.30) * scale,
+			xf(rx, -4.44, -4.70, 0, -90, -83),
+			runnerColor,
+			Enum.Material.Metal
+		)
+		addPart(
+			"RearCurl",
+			Vector3.new(0.53, 0.46, 0.30) * scale,
+			xf(rx, -4.80, 4.53, 0, -90, 9),
+			runnerColor,
+			Enum.Material.Metal
+		)
+		for _, zStrut in { -3.0, 0.0, 3.0 } do
+			addPart(
+				"Strut",
+				Vector3.new(0.60, 0.36, 0.36) * scale,
+				xf(rx, -4.50, zStrut, 0, 90, 90),
+				runnerColor,
+				Enum.Material.Metal
+			)
+		end
+	end
+
+	-- 3. Фигурка гонщика: торс с полосами, голова, шлем, лыжные очки, руки и ноги в ботинках
+	addPart("Torso", Vector3.new(2.40, 2.00, 1.60) * scale, xf(0, -2.00, 0.50), color)
+	addPart("SuitStripeV", Vector3.new(0.40, 1.60, 0.06) * scale, xf(0, -2.00, -0.30), stripeColor)
+	addPart("SuitStripeH", Vector3.new(2.00, 0.40, 0.06) * scale, xf(0, -2.00, -0.30), stripeColor)
+	addPart("Head", Vector3.new(2.50, 2.50, 2.50) * scale, xf(0, 0.30, 0.50), skinColor)
+	addPart("Helmet", Vector3.new(2.80, 2.80, 2.80) * scale, xf(0, 0.45, 0.50), color)
+	addPart("GoggleRim", Vector3.new(2.25, 0.90, 0.42) * scale, xf(0, 0.50, -0.90), darkColor)
+	addPart(
+		"GoggleGlass",
+		Vector3.new(1.95, 0.62, 0.44) * scale,
+		xf(0, 0.50, -0.94),
+		visorColor,
+		Enum.Material.Neon
+	)
+	addPart("GoggleStrap", Vector3.new(2.90, 0.30, 2.88) * scale, xf(0, 0.50, 0.50), darkColor)
+
+	for _, side in { -1, 1 } do
+		addPart(
+			"Sleeve",
+			Vector3.new(2.55, 0.80, 0.80) * scale,
+			xf(side * 1.50, -2.03, -0.13, 0, 90, -45),
+			color
+		)
+		addPart(
+			"Hand",
+			Vector3.new(0.82, 0.82, 0.82) * scale,
+			xf(side * 1.50, -2.94, -1.04),
+			skinColor
+		)
+		addPart(
+			"Thigh",
+			Vector3.new(2.60, 1.00, 1.00) * scale,
+			xf(side * 0.80, -2.50, -0.30, 0, 90, 0),
+			color
+		)
+		addPart(
+			"Calf",
+			Vector3.new(1.60, 1.00, 1.00) * scale,
+			xf(side * 0.80, -2.80, -1.10, 0, -90, -90),
+			color
+		)
+		addPart(
+			"Boot",
+			Vector3.new(1.12, 0.62, 1.42) * scale,
+			xf(side * 0.80, -3.30, -1.30),
+			darkColor
+		)
+	end
 
 	-- Имя соперника сверху
 	local bb = Instance.new("BillboardGui")
-	bb.Size = UDim2.fromScale(4, 1.2)
-	bb.StudsOffset = Vector3.new(0, 3.2, 0)
+	bb.Size = UDim2.fromScale(4.5, 1.25)
+	bb.StudsOffset = Vector3.new(0, 4.8, 0)
 	bb.AlwaysOnTop = true
-	bb.MaxDistance = 160
+	bb.MaxDistance = 180
 	bb.Adornee = rootPart
 
 	local nameLbl = Instance.new("TextLabel")
@@ -283,53 +402,31 @@ local function createRivalModel(name: string, color: Color3, runnerColor: Color3
 	nameLbl.Font = Enum.Font.FredokaOne
 	nameLbl.TextScaled = true
 	nameLbl.TextColor3 = color
-	nameLbl.TextStrokeTransparency = 0.2
+	nameLbl.TextStrokeTransparency = 0.15
 	nameLbl.Parent = bb
 	bb.Parent = m
 
+	m.Parent = Workspace
 	return m
 end
 
 local function setRivalPose(rival: Rival)
 	local surface = Track.Frame(track, rival.state.s, rival.state.d)
 		+ Vector3.new(0, rival.state.air, 0)
+	local spinYaw = if rival.spinOutTime > 0 then rival.spinOutTime * 12 else 0
 	local cf = surface
 		* CFrame.new(0, S.RideHeight, 0)
 		* CFrame.Angles(
 			0,
-			-(rival.state.heading + (rival.state.heading - rival.state.slide) * S.DriftVisual),
+			-(rival.state.heading + (rival.state.heading - rival.state.slide) * S.DriftVisual)
+				+ spinYaw,
 			0
 		)
 
-	local rootPart = rival.model:FindFirstChild("Root") :: Part?
-	if rootPart then
-		rootPart.CFrame = cf * CFrame.new(0, S.Runner.Y + S.Board.Y / 2, 0)
-	end
-	local torso = rival.model:FindFirstChild("Torso") :: Part?
-	if torso then
-		torso.CFrame = cf * CFrame.new(0, 1.8, 0.2)
-	end
-	local head = rival.model:FindFirstChild("Head") :: Part?
-	if head then
-		head.CFrame = cf * CFrame.new(0, 3.0, 0.2)
-	end
-
-	local runners: { Part } = {}
-	for _, child in rival.model:GetChildren() do
-		if child.Name == "Runner" and child:IsA("Part") then
-			table.insert(runners, child)
-		end
-	end
-	for i, side in { -1, 1 } do
-		local rPart = runners[i]
-		if rPart then
-			local x = side * (S.Board.X / 2 - S.Runner.X / 2)
-			rPart.CFrame = cf * CFrame.new(x, S.Runner.Y / 2, 0)
-		end
-	end
+	rival.model:PivotTo(cf)
 
 	if rival.shieldPart then
-		rival.shieldPart.CFrame = cf
+		rival.shieldPart.CFrame = cf * CFrame.new(0, 1.6, 0)
 	end
 end
 

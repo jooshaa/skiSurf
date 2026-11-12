@@ -43,31 +43,71 @@ local function basePart(part: BasePart)
 	part.CastShadow = false
 end
 
-local function block(size: Vector3, offset: CFrame, color: Color3): Part
+local function block(size: Vector3, offset: CFrame, color: Color3, material: Enum.Material?): Part
 	local part = Instance.new("Part")
 	part.Size = size
 	part.CFrame = root.CFrame * offset
 	part.Color = color
-	part.Material = Enum.Material.SmoothPlastic
+	part.Material = material or Enum.Material.SmoothPlastic
 	basePart(part)
 	part.Parent = sled
 	table.insert(bodyParts, part)
 	return part
 end
 
--- Запасные санки из блоков
+-- Детализированные санки (деревянные планки, поперечины, спинка, стальные полозья и стойки)
 local function buildBlocks()
+	local woodColor = Color3.fromRGB(222, 184, 135)
 	local runnerY = S.Runner.Y / 2
-	block(S.Board, CFrame.new(0, S.Runner.Y + S.Board.Y / 2, 0), S.Color)
+	local deckY = S.Runner.Y + 0.35
+
+	-- 5 продольных деревянных реек настила
+	for i = -2, 2 do
+		block(
+			Vector3.new(0.48, 0.16, S.Board.Z),
+			CFrame.new(i * 0.56, deckY, 0),
+			if math.abs(i) == 2 then S.Color else woodColor,
+			Enum.Material.Wood
+		)
+	end
+
+	-- 3 поперечные балки под настилом
+	for _, zOff in { -1.8, 0, 1.8 } do
+		block(
+			Vector3.new(S.Board.X, 0.16, 0.32),
+			CFrame.new(0, deckY - 0.14, zOff),
+			woodColor,
+			Enum.Material.Wood
+		)
+	end
+
+	-- Задняя спинка сиденья
+	block(
+		Vector3.new(S.Board.X * 0.75, 0.75, 0.2),
+		CFrame.new(0, deckY + 0.42, S.Board.Z * 0.42) * CFrame.Angles(-0.15, 0, 0),
+		S.Color,
+		Enum.Material.SmoothPlastic
+	)
+
+	-- Полозья с загнутыми носами и стойками
 	for _, side in { -1, 1 } do
-		local x = side * (S.Board.X / 2 - S.Runner.X / 2)
-		block(S.Runner, CFrame.new(x, runnerY, 0), S.RunnerColor)
+		local x = side * (S.Board.X / 2 - S.Runner.X / 2 - 0.12)
+		block(S.Runner, CFrame.new(x, runnerY, 0), S.RunnerColor, Enum.Material.Metal)
 		block(
 			Vector3.new(S.Runner.X, S.Runner.Y, S.NoseLength),
 			CFrame.new(x, runnerY + S.NoseLift, -S.Runner.Z / 2 - S.NoseLength / 3)
 				* CFrame.Angles(S.NoseAngle, 0, 0),
-			S.RunnerColor
+			S.RunnerColor,
+			Enum.Material.Metal
 		)
+		for _, zStrut in { -1.8, 0, 1.8 } do
+			block(
+				Vector3.new(0.22, 0.35, 0.25),
+				CFrame.new(x, runnerY + 0.2, zStrut),
+				S.RunnerColor,
+				Enum.Material.Metal
+			)
+		end
 	end
 end
 

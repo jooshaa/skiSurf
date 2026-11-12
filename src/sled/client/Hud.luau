@@ -139,7 +139,8 @@ function Hud.Create()
 	end
 
 	-- Позиция в гонке (1ST, 2ND, 3RD, 4TH) в левом верхнем углу
-	rankLabel = label(gui, UDim2.fromScale(0.18, 0.08), UDim2.fromScale(0.03, 0.08))
+	rankLabel = label(gui, UDim2.fromScale(0.18, 0.08), UDim2.fromScale(0.025, 0.11))
+	rankLabel.AnchorPoint = Vector2.new(0, 0)
 	rankLabel.TextXAlignment = Enum.TextXAlignment.Left
 	rankLabel.Font = Enum.Font.FredokaOne
 	rankLabel.Text = "1ST"
