@@ -47,7 +47,8 @@ local playerItem: Powerups.Kind? = nil
 local isRoulette = false
 local rouletteTime = 0
 local shieldActive = false
-local shieldPart: Part? = nil
+local shieldVis: PowerupEffects.ShieldVisual? = nil
+local boostVis: PowerupEffects.BoostVisual? = nil
 local boostTime = 0
 local spinOutTime = 0
 local playerRank = 1
@@ -63,7 +64,8 @@ type Rival = {
 	item: Powerups.Kind?,
 	itemCooldown: number,
 	shieldActive: boolean,
-	shieldPart: Part?,
+	shieldVis: PowerupEffects.ShieldVisual?,
+	boostVis: PowerupEffects.BoostVisual?,
 	boostTime: number,
 	spinOutTime: number,
 }
@@ -413,11 +415,12 @@ end
 local function setRivalPose(rival: Rival)
 	local surface = Track.Frame(track, rival.state.s, rival.state.d)
 		+ Vector3.new(0, rival.state.air, 0)
-	local spinYaw = if rival.spinOutTime > 0 then rival.spinOutTime * 12 else 0
+	local spinYaw = if rival.spinOutTime > 0 then rival.spinOutTime * 14 else 0
+	local wheeliePitch = if rival.boostTime > 0 then 0.12 else 0
 	local cf = surface
 		* CFrame.new(0, S.RideHeight, 0)
 		* CFrame.Angles(
-			0,
+			wheeliePitch,
 			-(rival.state.heading + (rival.state.heading - rival.state.slide) * S.DriftVisual)
 				+ spinYaw,
 			0
@@ -425,9 +428,26 @@ local function setRivalPose(rival: Rival)
 
 	rival.model:PivotTo(cf)
 
-	if rival.shieldPart then
-		rival.shieldPart.CFrame = cf * CFrame.new(0, 1.6, 0)
+	if rival.shieldVis then
+		PowerupEffects.UpdateShieldVisual(rival.shieldVis, cf, clock)
 	end
+	if rival.boostVis then
+		PowerupEffects.UpdateBoostVisual(rival.boostVis, cf, clock)
+	end
+end
+
+-- Поиск ближайшего соперника впереди в радиусе наведения ракеты
+local function findNearestRivalAhead(): Rival?
+	local nearestAhead: Rival? = nil
+	local minGap = math.huge
+	for _, r in rivals do
+		local gap = r.state.s - state.s
+		if gap > 5 and gap < minGap and gap < P.Rocket.MaxRange then
+			minGap = gap
+			nearestAhead = r
+		end
+	end
+	return nearestAhead
 end
 
 -- Использование предмета игроком (ракета, салют, буст, щит)
@@ -441,27 +461,24 @@ local function usePlayerItem()
 	Hud.SetPowerup(nil, false, usePlayerItem)
 
 	if item == "Rocket" then
-		local nearestAhead: Rival? = nil
-		local minGap = math.huge
-		for _, r in rivals do
-			local gap = r.state.s - state.s
-			if gap > 5 and gap < minGap and gap < P.Rocket.MaxRange then
-				minGap = gap
-				nearestAhead = r
-			end
-		end
+		local nearestAhead = findNearestRivalAhead()
 		local targetId = if nearestAhead then nearestAhead.id else nil
-		PowerupEffects.SpawnRocket(track, state.s + 10, state.d, targetId)
+		PowerupEffects.SpawnRocket(track, state.s + 10, state.d, targetId, state.v)
+		camKick = math.max(camKick, C.BankKick * 1.4)
 	elseif item == "Fireworks" then
-		PowerupEffects.SpawnFireworks(track, state.s + 12, state.d)
+		PowerupEffects.SpawnFireworks(track, state.s + 12, state.d, state.v)
+		camKick = math.max(camKick, C.BankKick * 1.2)
 	elseif item == "Boost" then
 		boostTime = P.Boost.Duration
 		state.v += P.Boost.ExtraSpeed
+		if not boostVis then
+			boostVis = PowerupEffects.CreateBoostTurbines(Workspace)
+		end
 		SledView.Land(1.0)
 	elseif item == "Shield" then
 		shieldActive = true
-		if not shieldPart then
-			shieldPart = PowerupEffects.CreateShield(Workspace)
+		if not shieldVis then
+			shieldVis = PowerupEffects.CreateShield(Workspace)
 		end
 	end
 end
@@ -469,8 +486,11 @@ end
 local function initRivals()
 	for _, r in rivals do
 		r.model:Destroy()
-		if r.shieldPart then
-			r.shieldPart:Destroy()
+		if r.shieldVis then
+			r.shieldVis.model:Destroy()
+		end
+		if r.boostVis then
+			r.boostVis.model:Destroy()
 		end
 	end
 	table.clear(rivals)
@@ -494,7 +514,8 @@ local function initRivals()
 			item = nil,
 			itemCooldown = 0,
 			shieldActive = false,
-			shieldPart = nil,
+			shieldVis = nil,
+			boostVis = nil,
 			boostTime = 0,
 			spinOutTime = 0,
 		}
@@ -513,13 +534,19 @@ local function restart()
 	isRoulette = false
 	rouletteTime = 0
 	shieldActive = false
-	if shieldPart then
-		shieldPart:Destroy()
-		shieldPart = nil
+	if shieldVis then
+		shieldVis.model:Destroy()
+		shieldVis = nil
+	end
+	if boostVis then
+		boostVis.model:Destroy()
+		boostVis = nil
 	end
 	boostTime = 0
 	spinOutTime = 0
 	playerRank = 1
+	PowerupEffects.UpdateHeldItem(nil, false, CFrame.new(), 0)
+	PowerupEffects.UpdateTargetLock(nil, 0)
 
 	Powerups.ResetBoxes(boxes)
 	for _, r in rivals do
@@ -528,9 +555,13 @@ local function restart()
 		r.item = nil
 		r.itemCooldown = 0
 		r.shieldActive = false
-		if r.shieldPart then
-			r.shieldPart:Destroy()
-			r.shieldPart = nil
+		if r.shieldVis then
+			r.shieldVis.model:Destroy()
+			r.shieldVis = nil
+		end
+		if r.boostVis then
+			r.boostVis.model:Destroy()
+			r.boostVis = nil
 		end
 		r.boostTime = 0
 		r.spinOutTime = 0
@@ -557,9 +588,15 @@ end
 -- Положение санок в мире по состоянию расчёта
 local function sledFrame(): CFrame
 	local surface = Track.Frame(track, state.s, state.d) + Vector3.new(0, state.air, 0)
+	local spinYaw = if spinOutTime > 0 then spinOutTime * 14 else 0
+	local wheeliePitch = if boostTime > 0 then 0.12 else 0
 	return surface
 		* CFrame.new(0, S.RideHeight, 0)
-		* CFrame.Angles(0, -(state.heading + (state.heading - state.slide) * S.DriftVisual), 0)
+		* CFrame.Angles(
+			wheeliePitch,
+			-(state.heading + (state.heading - state.slide) * S.DriftVisual) + spinYaw,
+			0
+		)
 		* CFrame.Angles(0, 0, -lean * S.Lean)
 end
 
@@ -589,10 +626,14 @@ local function updateRun(dt: number, steer: number, brake: boolean)
 		state.yaw = P.Rocket.SpinSpeed
 	end
 
-	-- Нитро-ускорение
+	-- Нитро-ускорение с 3D-турбинами
 	if boostTime > 0 then
 		boostTime -= dt
-		state.v = math.max(state.v, 115)
+		state.v = math.max(state.v, 138)
+		if boostTime <= 0 and boostVis then
+			boostVis.model:Destroy()
+			boostVis = nil
+		end
 	end
 
 	simulate(dt, steer, brake)
@@ -626,15 +667,32 @@ local function updateRun(dt: number, steer: number, brake: boolean)
 		end
 	end
 
-	-- Обновление щита игрока
-	if shieldPart then
+	-- Обновление орбитального щита и турбин игрока
+	local currentPlayerFrame = sledFrame()
+	if shieldVis then
 		if shieldActive then
-			local surf = Track.Frame(track, state.s, state.d)
-			shieldPart.CFrame = surf * CFrame.new(0, S.RideHeight, 0)
+			PowerupEffects.UpdateShieldVisual(shieldVis, currentPlayerFrame, clock)
 		else
-			shieldPart:Destroy()
-			shieldPart = nil
+			shieldVis.model:Destroy()
+			shieldVis = nil
 		end
+	end
+	if boostVis then
+		PowerupEffects.UpdateBoostVisual(boostVis, currentPlayerFrame, clock)
+	end
+
+	-- Отображение 3D-предмета на санках до выстрела + прицел наведения
+	PowerupEffects.UpdateHeldItem(playerItem, isRoulette, currentPlayerFrame, clock)
+	if playerItem == "Rocket" and not isRoulette then
+		local lockedRival = findNearestRivalAhead()
+		if lockedRival then
+			local rCf = Track.Frame(track, lockedRival.state.s, lockedRival.state.d)
+			PowerupEffects.UpdateTargetLock(rCf, clock)
+		else
+			PowerupEffects.UpdateTargetLock(nil, clock)
+		end
+	else
+		PowerupEffects.UpdateTargetLock(nil, clock)
 	end
 
 	-- Симуляция соперников
@@ -649,7 +707,11 @@ local function updateRun(dt: number, steer: number, brake: boolean)
 
 		if r.boostTime > 0 then
 			r.boostTime -= dt
-			r.state.v = math.max(r.state.v, 115)
+			r.state.v = math.max(r.state.v, 132)
+			if r.boostTime <= 0 and r.boostVis then
+				r.boostVis.model:Destroy()
+				r.boostVis = nil
+			end
 		end
 
 		SledSim.Step(track, r.state, SledConfig.Physics, rSteer, rBrake, dt)
@@ -695,16 +757,19 @@ local function updateRun(dt: number, steer: number, brake: boolean)
 						end
 					end
 				end
-				PowerupEffects.SpawnRocket(track, r.state.s + 10, r.state.d, targetId)
+				PowerupEffects.SpawnRocket(track, r.state.s + 10, r.state.d, targetId, r.state.v)
 			elseif rItem == "Fireworks" then
-				PowerupEffects.SpawnFireworks(track, r.state.s + 12, r.state.d)
+				PowerupEffects.SpawnFireworks(track, r.state.s + 12, r.state.d, r.state.v)
 			elseif rItem == "Boost" then
 				r.boostTime = P.Boost.Duration
 				r.state.v += P.Boost.ExtraSpeed
+				if not r.boostVis then
+					r.boostVis = PowerupEffects.CreateBoostTurbines(Workspace)
+				end
 			elseif rItem == "Shield" then
 				r.shieldActive = true
-				if not r.shieldPart then
-					r.shieldPart = PowerupEffects.CreateShield(r.model)
+				if not r.shieldVis then
+					r.shieldVis = PowerupEffects.CreateShield(Workspace)
 				end
 			end
 		end
@@ -712,7 +777,7 @@ local function updateRun(dt: number, steer: number, brake: boolean)
 		setRivalPose(r)
 	end
 
-	-- Обновление снарядов и попаданий
+	-- Обновление снарядов и попаданий (подбрасывание санок в воздух при взрыве!)
 	local racerTargets = {
 		{
 			id = "player",
@@ -721,16 +786,20 @@ local function updateRun(dt: number, steer: number, brake: boolean)
 			onHit = function()
 				if shieldActive then
 					shieldActive = false
-					if shieldPart then
-						shieldPart:Destroy()
-						shieldPart = nil
+					if shieldVis then
+						shieldVis.model:Destroy()
+						shieldVis = nil
 					end
+					state.v += 20
 					PowerupEffects.Explosion(Track.Frame(track, state.s, state.d).Position, true)
 				else
 					spinOutTime = P.Rocket.StunDuration
 					state.v *= P.Rocket.SpeedFactor
 					state.yaw = P.Rocket.SpinSpeed
-					camKick = C.HitKick * 1.5
+					state.air = math.max(state.air, 4.5)
+					state.w = 22
+					state.airborne = true
+					camKick = C.HitKick * 2.0
 					SledView.Land(1.0)
 				end
 			end,
@@ -744,9 +813,9 @@ local function updateRun(dt: number, steer: number, brake: boolean)
 			onHit = function()
 				if r.shieldActive then
 					r.shieldActive = false
-					if r.shieldPart then
-						r.shieldPart:Destroy()
-						r.shieldPart = nil
+					if r.shieldVis then
+						r.shieldVis.model:Destroy()
+						r.shieldVis = nil
 					end
 					PowerupEffects.Explosion(
 						Track.Frame(track, r.state.s, r.state.d).Position,
@@ -756,14 +825,17 @@ local function updateRun(dt: number, steer: number, brake: boolean)
 					r.spinOutTime = P.Rocket.StunDuration
 					r.state.v *= P.Rocket.SpeedFactor
 					r.state.yaw = P.Rocket.SpinSpeed
+					r.state.air = math.max(r.state.air, 6.0)
+					r.state.w = 26
+					r.state.airborne = true
 				end
 			end,
 		})
 	end
 	PowerupEffects.UpdateProjectiles(track, dt, racerTargets)
 
-	-- Анимация боксов
-	PowerupEffects.UpdateBoxes(boxes, dt, clock)
+	-- Анимация подарков и магнитное притяжение к игроку
+	PowerupEffects.UpdateBoxes(boxes, dt, clock, currentPlayerFrame.Position)
 
 	-- Расчёт позиции в гонке
 	local aheadCount = 0
@@ -897,7 +969,10 @@ local function updateCamera(dt: number, frame: CFrame)
 		math.clamp(turned / C.OrbitFocusBlend, 0, 1)
 	)
 
-	local wantedFov = C.FovBase + C.FovExtra * math.clamp(state.v / C.FovSpeedRef, 0, 1)
+	local boostFovBonus = if boostTime > 0 then 15 else 0
+	local wantedFov = C.FovBase
+		+ C.FovExtra * math.clamp(state.v / C.FovSpeedRef, 0, 1)
+		+ boostFovBonus
 	camFov += (wantedFov - camFov) * (1 - math.exp(-C.FovRate * dt))
 	camera.FieldOfView = camFov
 	camKick *= math.exp(-C.LandKickDecay * dt)

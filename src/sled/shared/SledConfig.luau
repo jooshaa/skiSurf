@@ -736,42 +736,43 @@ SledConfig.Bot = {
 }
 
 SledConfig.Powerups = {
-	BoxLines = { 0.16, 0.38, 0.60, 0.82 }, -- доли длины трассы, где стоят линии боксов
-	BoxesPerLine = 3,
-	BoxSpread = 0.65, -- на какую долю свободной ширины расставляются боксы
-	BoxSize = Vector3.new(3.6, 3.6, 3.6),
-	BoxFloat = 3.2, -- высота над полотном
-	BoxRadius = 4.8, -- радиус взятия санями
-	BoxRespawn = 4.5, -- секунд до повторного появления
-	SpinRate = 2.4, -- скорость вращения бокса, рад/с
+	BoxLines = { 0.06, 0.15, 0.25, 0.35, 0.45, 0.55, 0.65, 0.75, 0.84, 0.92 }, -- 10 линий подарков по всей трассе
+	BoxesPerLine = 4, -- по 4 больших подарка в ряд, чтобы легко брать на любой скорости
+	BoxSpread = 0.72, -- на какую долю свободной ширины расставляются боксы
+	BoxSize = Vector3.new(5.2, 5.2, 5.2),
+	BoxFloat = 3.6, -- высота над полотном
+	BoxRadius = 9.5, -- увеличенный радиус взятия санями
+	BoxMagnetRadius = 16.5, -- радиус магнитного притяжения подарка к санкам
+	BoxRespawn = 2.5, -- секунд до повторного появления
+	SpinRate = 2.2, -- скорость вращения бокса, рад/с
 	BobRate = 3.2,
-	BobHeight = 0.4,
-	RouletteDuration = 0.75, -- сколько длится прокрутка предмета на экране
+	BobHeight = 0.55,
+	RouletteDuration = 0.65, -- сколько длится прокрутка предмета на экране
 
 	Rocket = {
-		Speed = 135,
-		MaxRange = 520,
-		HitRadius = 7.5,
-		StunDuration = 1.3,
-		SpeedFactor = 0.32,
-		SpinSpeed = 14,
+		Speed = 225,
+		MaxRange = 620,
+		HitRadius = 9.5,
+		StunDuration = 1.4,
+		SpeedFactor = 0.28,
+		SpinSpeed = 16,
 	},
 	Fireworks = {
-		VolleyCount = 3,
-		SpreadAngles = { -0.20, 0, 0.20 },
-		Speed = 110,
-		Range = 240,
-		ExplosionRadius = 13,
-		StunDuration = 1.0,
-		SpeedFactor = 0.40,
-		SpinSpeed = 10,
+		VolleyCount = 5,
+		SpreadAngles = { -0.24, -0.12, 0, 0.12, 0.24 },
+		Speed = 165,
+		Range = 280,
+		ExplosionRadius = 16,
+		StunDuration = 1.15,
+		SpeedFactor = 0.35,
+		SpinSpeed = 12,
 	},
 	Boost = {
-		ExtraSpeed = 45,
-		Duration = 2.3,
+		ExtraSpeed = 55,
+		Duration = 2.8,
 	},
 	Shield = {
-		Duration = 6.0,
+		Duration = 7.0,
 	},
 }
 
