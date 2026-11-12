@@ -659,11 +659,9 @@ local function startFall()
 	local surface = Track.Frame(track, state.s, state.d)
 	local direction =
 		surface:VectorToWorldSpace(Vector3.new(math.sin(state.slide), 0, -math.cos(state.slide)))
-	local outwardSign = if state.d >= 0 then 1 else -1
-	fallVelocity = direction * state.v
-		+ surface.RightVector * (outwardSign * 18)
-		+ Vector3.new(0, math.min(state.w * R.FallLift, -14) - 12, 0)
-	PowerupEffects.SnowExplosion(fallFrame.Position)
+	-- Реалистичная инерция срыва с края сугроба без рывков и мультяшных взрывов
+	fallVelocity = direction * state.v + Vector3.new(0, math.min(state.w * R.FallLift, -6), 0)
+	SledView.Land(0.85)
 	setMode("fall")
 end
 
@@ -973,9 +971,12 @@ local function updateRun(dt: number, steer: number, brake: boolean)
 end
 
 local function updateFall(dt: number)
-	fallVelocity -= Vector3.new(0, params.AirGravity * 1.45 * dt, 0)
-	fallFrame = (fallFrame + fallVelocity * dt)
-		* CFrame.Angles(R.FallSpin * dt, R.FallSpin * 0.4 * dt, R.FallSpin * R.FallRoll * dt)
+	fallVelocity -= Vector3.new(0, params.AirGravity * 1.15 * dt, 0)
+	local nextPos = fallFrame.Position + fallVelocity * dt
+	local sideSign = if state.d >= 0 then 1 else -1
+	-- В реальности санки при падении не крутят сальто, а плавно наклоняют нос вниз по траектории падения с лёгким креном в сторону обрыва
+	fallFrame = (fallFrame - fallFrame.Position + nextPos)
+		* CFrame.Angles(-R.FallSpin * dt, 0, -sideSign * R.FallRoll * dt)
 	runTime += dt
 	if modeTime >= R.FallTime then
 		place(Track.CheckpointBefore(track, state.s), R.RespawnSpeed)
@@ -1013,11 +1014,11 @@ local function updateCamera(dt: number, frame: CFrame)
 	local dragX, dragY, wheel = Input.TakeCamera()
 
 	if mode == "fall" then
-		-- Камера вылетает за край обрыва вслед за санками и смотрит сверху вниз в пропасть (2.6 сек реального падения!)
+		-- Реалистичная камера при срыве с обрыва: плавно скользит за кромку склона и провожает падающие вниз санки
 		camFov += (C.FallFov - camFov) * (1 - math.exp(-C.FovRate * dt))
 		camera.FieldOfView = camFov
-		local cliffVantage = position + Vector3.new(0, 22, 0) - camDirection * 24
-		local eyePos = camera.CFrame.Position:Lerp(cliffVantage, 1 - math.exp(-3.2 * dt))
+		local cliffVantage = position + Vector3.new(0, 14, 0) - camDirection * 20
+		local eyePos = camera.CFrame.Position:Lerp(cliffVantage, 1 - math.exp(-3.5 * dt))
 		camera.CFrame = CFrame.lookAt(eyePos, position)
 		return
 	end

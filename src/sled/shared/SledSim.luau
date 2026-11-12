@@ -36,12 +36,21 @@ local function groundHeight(track: Track.Data, s: number, d: number): number
 	if over > 0 and Track.CaveDepth(track, s) <= 0 then
 		local side = math.sign(d)
 		local edgeY = pos.Y + right.Y * (side * width / 2)
-		local nearSpan = 18
+		local nearSpan = 20.7
+		local fullShoulder = 46.0
 		local nearSlope = math.rad(9)
 		local outerSlope = math.rad(30)
-		local drop = if over <= nearSpan
-			then over * math.tan(nearSlope)
-			else nearSpan * math.tan(nearSlope) + (over - nearSpan) * math.tan(outerSlope)
+		local cliffSlope = math.rad(62)
+		local drop: number
+		if over <= nearSpan then
+			drop = over * math.tan(nearSlope)
+		elseif over <= fullShoulder then
+			drop = nearSpan * math.tan(nearSlope) + (over - nearSpan) * math.tan(outerSlope)
+		else
+			drop = nearSpan * math.tan(nearSlope)
+				+ (fullShoulder - nearSpan) * math.tan(outerSlope)
+				+ (over - fullShoulder) * math.tan(cliffSlope)
+		end
 		return edgeY - drop
 	end
 	return pos.Y + right.Y * d
@@ -156,10 +165,10 @@ function SledSim.Step(
 	state.s += ds
 	state.d += state.v * math.sin(state.slide) * dt
 
-	-- Край трассы: в режиме OpenEdges за краем дороги идёт полноценный снежный сугроб обочины (шириной ~40 студов = 100%).
-	-- На первой половине сугроба (0..45%, до 18 студов, уклон 9°) санки спокойно едут по снегу и не падают.
-	-- Дальше за перегибом (45..88%, уклон 30°) гравитация наклоняет и сильнее тянет санки вниз по склону,
-	-- и на 85–90% ширины сугроба (35.2 студа, у самого конца сугроба перед скалой) санки срываются в обрыв!
+	-- Край трассы: в режиме OpenEdges за краем дороги идёт полноценный снежный сугроб обочины (шириной 46 студов = 100%).
+	-- Пока санки находятся на сугробе (от 0% до 100%, до 46 студов), они едут по реальному профилю снежного склона и НЕ падают.
+	-- Только когда санки выезжают за 100% предела сугроба (>= 46 студов, где кончается снег и начинается скальный обрыв 62°),
+	-- они естественно срываются вниз под действием гравитации!
 	local _, _, _, widthAfter = Track.At(track, state.s)
 	local limit = widthAfter / 2 - p.EdgeInset
 	state.bank = false
@@ -167,30 +176,30 @@ function SledSim.Step(
 		local over = math.abs(state.d) - widthAfter / 2
 		if over > 0 then
 			local side = math.sign(state.d)
-			local snowbankWidth = 40 -- 100% ширины сугроба обочины (TrackMesh ShoulderWidth с учётом шума кромки)
-			local fallAt = snowbankWidth * 0.88 -- 88% (в диапазоне 85–90% конца сугроба)
+			local nearSpan = 20.7 -- 45% ширины сугроба (пологий участок 9°)
+			local fullShoulder = 46.0 -- 100% ширины сугроба обочины (SledConfig.Scenery.ShoulderWidth)
 			state.bank = true -- пускаем снежную пыль из-под полозьев на сугробе обочины
 
-			if over <= 18 then
-				-- Пологая часть сугроба (0..45%): едем по снегу без падения, можно свободно вернуться на трассу
-				state.v *= math.exp(-0.18 * dt)
-				state.d += side * (0.8 + over * 0.08) * dt
+			if over <= nearSpan then
+				-- Пологая часть сугроба (0..45%, уклон 9°): спокойно едем по снегу, можно легко вырулить обратно
+				state.v *= math.exp(-0.15 * dt)
+				state.d += side * (0.6 + over * 0.06) * dt
 			else
-				-- Крутой склон сугроба (45..88%, уклон 30°): гравитация тянет и наклоняет санки к обрыву
-				local steepShare = math.clamp((over - 18) / (fallAt - 18), 0, 1)
-				state.v *= math.exp(-0.28 * dt)
-				state.d += side * (3.5 + steepShare * 15.0) * dt
-				local gravityTurn = 0.25 + steepShare * 1.15
+				-- Наклонный склон сугроба (45..100%, уклон 30°): естественная гравитация уклона тянет санки вниз к краю сугроба
+				local steepShare = math.clamp((over - nearSpan) / (fullShoulder - nearSpan), 0, 1)
+				state.v *= math.exp(-0.22 * dt)
+				state.d += side * (3.0 + steepShare * 11.0) * dt
+				local gravityTurn = 0.18 + steepShare * 0.75
 				state.slide =
 					math.clamp(state.slide + side * gravityTurn * dt, -p.MaxSlide, p.MaxSlide)
 				state.heading = math.clamp(
-					state.heading + side * gravityTurn * 0.7 * dt,
+					state.heading + side * gravityTurn * 0.65 * dt,
 					-p.MaxSlide,
 					p.MaxSlide
 				)
 			end
 
-			if over >= fallAt then
+			if over >= fullShoulder then
 				state.fell = true
 				return
 			end

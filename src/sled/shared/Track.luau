@@ -133,8 +133,8 @@ function Track.At(data: Data, s: number): (Vector3, Vector3, Vector3, number, nu
 end
 
 -- Система координат поверхности в точке (s, d): X вправо, Y вверх от снега, -Z по ходу трассы.
--- За пределами полотна (|d| > width/2) поверхность точно повторяет 3D-сетку снежного сугроба обочины (TrackMesh):
--- от кромки полотна идёт горизонтально вбок (flatRight) с уклоном 9° до перегиба (18 студов), а дальше 30° к обрыву.
+-- За пределами полотна (|d| > width/2) поверхность на 100% повторяет 3D-сетку сугроба обочины (TrackMesh: ShoulderWidth = 46):
+-- до перегиба (20.7 студов) уклон 9°, от перегиба до конца сугроба (46 студов = 100%) уклон 30°, а за пределами сугроба (> 46) — скальный обрыв 62°.
 function Track.Frame(data: Data, s: number, d: number): CFrame
 	local pos, tangent, right, width = Track.At(data, s)
 	local up = (-tangent):Cross(right).Unit
@@ -143,20 +143,30 @@ function Track.Frame(data: Data, s: number, d: number): CFrame
 		local side = math.sign(d)
 		local edgePos = pos + right * (side * width / 2)
 		local flatRight = Vector3.new(right.X, 0, right.Z).Unit
-		local nearSpan = 18 -- перегиб сугроба обочины (~45% от ширины сугроба 40 студов)
+		local nearSpan = 20.7 -- 45% от полной ширины сугроба обочины (46 * 0.45)
+		local fullShoulder = 46.0 -- 100% ширины сугроба обочины (SledConfig.Scenery.ShoulderWidth)
 		local nearSlope = math.rad(9)
 		local outerSlope = math.rad(30)
+		local cliffSlope = math.rad(62)
 
 		local drop: number
 		local slopeAngle: number
 		if over <= nearSpan then
 			drop = over * math.tan(nearSlope)
 			slopeAngle = nearSlope * math.clamp(over / 4, 0, 1)
-		else
+		elseif over <= fullShoulder then
 			local past = over - nearSpan
 			drop = nearSpan * math.tan(nearSlope) + past * math.tan(outerSlope)
-			local blend = math.clamp(past / 14, 0, 1)
+			local blend = math.clamp(past / 10, 0, 1)
 			slopeAngle = nearSlope + (outerSlope - nearSlope) * blend
+		else
+			local outerSpan = fullShoulder - nearSpan
+			local pastCliff = over - fullShoulder
+			drop = nearSpan * math.tan(nearSlope)
+				+ outerSpan * math.tan(outerSlope)
+				+ pastCliff * math.tan(cliffSlope)
+			local blend = math.clamp(pastCliff / 6, 0, 1)
+			slopeAngle = outerSlope + (cliffSlope - outerSlope) * blend
 		end
 
 		local worldPos = edgePos + flatRight * (side * over) - Vector3.yAxis * drop

@@ -355,26 +355,26 @@ do
 		string.format("Snowball: %d, Shield: %d", snowballs, shields)
 	)
 
-	-- Без бортиков (OpenEdges): на сугробе обочины (до 85% ширины) санки едут и не падают,
-	-- а на конце сугроба (85–90%, >= 35.2 студа) наклоняются от гравитации и срываются в обрыв
+	-- Без бортиков (OpenEdges): на всём сугробе обочины (от 0% до 100% = 46 студов) санки едут и не падают,
+	-- и срываются в обрыв только когда полностью выезжают за 100% сугроба (>= 46 студов)
 	local pOpen = physics()
 	pOpen.OpenEdges = true
 	local stOpen = SledSim.New(track, track.startS)
-	local rodeOnSnowbank = false
-	for _ = 1, 900 do
+	local rodeOnOuterSnowbank = false
+	for _ = 1, 1100 do
 		SledSim.Step(track, stOpen, pOpen, 1, false, 1 / 120)
 		local _, _, _, w = Track.At(track, stOpen.s)
 		local over = math.abs(stOpen.d) - w / 2
-		if over > 12 and over < 28 and not stOpen.fell then
-			rodeOnSnowbank = true
+		if over > 35 and over < 45.5 and not stOpen.fell then
+			rodeOnOuterSnowbank = true
 		end
 		if stOpen.fell then
 			break
 		end
 	end
 	check(
-		"без бортиков (OpenEdges): санки едут по сугробу обочины и падают только на 85–90% конца сугроба",
-		rodeOnSnowbank and stOpen.fell
+		"без бортиков (OpenEdges): санки едут по сугробу до 100% и падают только за пределами сугроба",
+		rodeOnOuterSnowbank and stOpen.fell
 	)
 
 	-- Щит (shielded): защищает от потери скорости на сугробах
