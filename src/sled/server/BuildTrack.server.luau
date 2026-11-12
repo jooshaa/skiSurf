@@ -76,17 +76,6 @@ local function buildSurface(parent: Instance, surface: boolean, cliffs: boolean)
 				if stripe then V.SnowA else V.SnowB,
 				Enum.Material.Snow
 			)
-
-			local color = edgeColor(s + span / 2)
-			for _, side in { -1, 1 } do
-				block(
-					parent,
-					Vector3.new(V.EdgeWidth, V.EdgeHeight, length),
-					frame * CFrame.new(side * (width - V.EdgeWidth) / 2, V.EdgeHeight / 2, 0),
-					color,
-					Enum.Material.SmoothPlastic
-				)
-			end
 		end
 
 		if cliffs then

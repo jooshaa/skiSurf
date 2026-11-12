@@ -39,6 +39,7 @@ export type Physics = {
 	BankHeading: number, -- круче этого угла нос в борт не смотрит, даже если туда рулят, рад
 	BankPush: number, -- под каким углом борт отталкивает санки обратно, рад
 	BankRegrip: number, -- повторное касание раньше этого времени не считается новым ударом, с
+	OpenEdges: boolean?, -- без бортиков: при выезде за край полотна санки улетают в обрыв и возрождаются
 }
 
 local SledConfig = {}
@@ -195,43 +196,43 @@ SledConfig.Input = {
 }
 
 SledConfig.Camera = {
-	Distance = 20,
-	DistancePerSpeed = 0.05,
-	Height = 9,
-	MinClearance = 5, -- не ниже этого над снегом позади
-	LookAhead = 30,
-	LookAheadTime = 0.45, -- плюс скорость * это время
-	LateralFollow = 0.5, -- доля бокового смещения санок в точке взгляда
-	FocusAhead = 26,
-	FocusHeight = 3,
-	AirFocus = 0.5, -- доля высоты полёта, на которую поднимается взгляд
-	TurnRate = 5, -- как быстро камера доворачивает
-	FovBase = 68,
-	FovExtra = 24,
+	Distance = 15.5,
+	DistancePerSpeed = 0.035,
+	Height = 5.8,
+	MinClearance = 3.8, -- не ниже этого над снегом позади
+	LookAhead = 18,
+	LookAheadTime = 0.18, -- плюс скорость * это время
+	LateralFollow = 0.85, -- доля бокового смещения санок в точке взгляда
+	FocusAhead = 22,
+	FocusHeight = 2.5,
+	AirFocus = 0.65, -- доля высоты полёта, на которую поднимается взгляд
+	TurnRate = 11.5, -- быстрое и отзывчивое вращение камеры за носом санок (как в Beach Buggy Racing)
+	FovBase = 70,
+	FovExtra = 20,
 	FovSpeedRef = 150,
-	FovRate = 3,
-	Roll = 0.06, -- наклон камеры в повороте
-	SideSway = 2.2, -- на сколько студов камеру выносит наружу поворота
-	ShakeAmount = 0.007, -- дрожь камеры на полной скорости, рад
+	FovRate = 4.5,
+	Roll = 0.038, -- плавный наклон камеры в повороте
+	SideSway = 0.9, -- лёгкое смещение камеры в повороте без потери центра
+	ShakeAmount = 0.005, -- дрожь камеры на полной скорости, рад
 	ShakeFreq = 13,
 	ShakeSpeedRef = 150,
 	ShakeCurve = 2, -- степень: дрожь появляется только ближе к полной скорости
-	LandKick = 0.07, -- кивок камеры при приземлении, рад
-	LandKickDecay = 7,
-	BankKick = 0.05, -- кивок камеры при ударе о снежный борт, рад
-	HitKick = 0.09, -- кивок камеры при наезде на препятствие, рад
+	LandKick = 0.06, -- кивок камеры при приземлении, рад
+	LandKickDecay = 8,
+	BankKick = 0.04, -- кивок камеры при ударе о снежный борт, рад
+	HitKick = 0.08, -- кивок камеры при наезде на препятствие, рад
 	FallFov = 60,
 	OrbitSpeed = 0.006, -- поворот камеры на пиксель сдвига пальца или мыши, рад
-	OrbitPitchDefault = 0.28, -- высота камеры на старте: трасса видна сверху, рад
-	OrbitPitchMin = -0.1, -- насколько камеру можно опустить, рад
-	OrbitPitchMax = 1.25, -- и поднять
+	OrbitPitchDefault = 0.14, -- угол обзора в стиле Beach Buggy Racing: плотно сзади-сверху
+	OrbitPitchMin = -0.05, -- насколько камеру можно опустить, рад
+	OrbitPitchMax = 1.15, -- и поднять
 	OrbitFocusBlend = 0.5, -- при таком отклонении камера смотрит уже на санки, а не вперёд по трассе, рад
 	OrbitClearance = 0.15, -- пока камера почти сзади, она не опускается ниже снега позади, рад
-	OrbitReturnDelay = 2.5, -- через столько секунд без касания камера сама возвращается за спину
-	OrbitReturnRate = 3, -- как быстро возвращается, 1/с
+	OrbitReturnDelay = 1.5, -- через столько секунд без касания камера сама возвращается за спину
+	OrbitReturnRate = 5, -- как быстро возвращается, 1/с
 	ZoomStep = 0.1, -- шаг колёсика мыши
-	ZoomMin = 0.6,
-	ZoomMax = 2.5,
+	ZoomMin = 0.65,
+	ZoomMax = 2.2,
 }
 
 SledConfig.Visual = {
@@ -347,25 +348,25 @@ SledConfig.Assets = {
 	},
 }
 
--- Указатели поворота: щиты со стрелками на внешней стороне дуги
+-- Указатели поворота: щиты со стрелками на внешней стороне дуги (единственные ориентиры на опасных поворотах)
 SledConfig.Signs = {
-	Kappa = 1 / 360, -- поворот круче этого получает указатели
-	Every = 44, -- шаг между щитами вдоль трассы
-	MinShoulder = 12, -- на склоне уже этого щит не ставим
-	Offset = 5, -- от края трассы наружу
-	Post = 0.5,
-	PostHeight = 3.5, -- от снега до низа щита
+	Kappa = 1 / 420, -- поворот круче этого получает указатели
+	Every = 36, -- шаг между щитами вдоль опасного поворота
+	MinShoulder = 8, -- ставим щиты даже на узких полках у поворотов
+	Offset = 3.5, -- от края трассы наружу
+	Post = 0.6,
+	PostHeight = 4.0, -- от снега до низа щита
 	Sink = 4, -- столб уходит в снег
-	Board = Vector3.new(8, 4, 0.4),
+	Board = Vector3.new(9.2, 4.6, 0.45),
 	Arrows = 2, -- стрелок на щите
-	ArrowGap = 3.2,
-	ArrowRun = 1.5, -- ширина стрелки
-	ArrowRise = 1.4, -- полувысота стрелки
-	ArrowThick = 0.7,
-	ArrowDepth = 0.3,
+	ArrowGap = 3.6,
+	ArrowRun = 1.7, -- ширина стрелки
+	ArrowRise = 1.6, -- полувысота стрелки
+	ArrowThick = 0.8,
+	ArrowDepth = 0.35,
 	PostColor = Color3.fromRGB(60, 64, 76),
 	BoardColor = Color3.fromRGB(255, 205, 40),
-	BoardSharp = Color3.fromRGB(235, 60, 60), -- тормозной поворот
+	BoardSharp = Color3.fromRGB(235, 60, 60), -- опасный тормозной поворот
 	ArrowColor = Color3.fromRGB(24, 26, 34),
 }
 
@@ -758,21 +759,33 @@ SledConfig.Powerups = {
 		SpinSpeed = 16,
 	},
 	Fireworks = {
-		VolleyCount = 5,
-		SpreadAngles = { -0.24, -0.12, 0, 0.12, 0.24 },
-		Speed = 165,
-		Range = 280,
-		ExplosionRadius = 16,
-		StunDuration = 1.15,
-		SpeedFactor = 0.35,
-		SpinSpeed = 12,
+		VolleyCount = 3,
+		SpreadAngles = { -0.045, 0, 0.045 }, -- прямой залп вперёд без самонаведения
+		Speed = 245,
+		Range = 420,
+		ExplosionRadius = 10.5,
+		StunDuration = 1.25,
+		SpeedFactor = 0.32,
+		SpinSpeed = 14,
+	},
+	Snowball = {
+		Count = 5, -- 5 гигантских снежных шаров, перекатывающихся через дорогу впереди
+		StartAhead = 60, -- первый шар появляется впереди по курсу
+		Spacing = 28, -- шаг между шарами вдоль трассы
+		CrossSpeed = 28, -- скорость перекатывания слева направо и справа налево поперёк дороги
+		DownhillSpeed = 30, -- попутное качение вниз по склону
+		Radius = 5.6, -- радиус снежного кома
+		Duration = 6.5, -- сколько секунд катится лавина шаров
+		StunDuration = 1.3,
+		SpeedFactor = 0.30,
+		SpinSpeed = 15,
 	},
 	Boost = {
 		ExtraSpeed = 55,
 		Duration = 2.8,
 	},
 	Shield = {
-		Duration = 7.0,
+		Duration = 7.5, -- время действия защитного щита от всех ударов и препятствий
 	},
 }
 

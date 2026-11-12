@@ -159,11 +159,11 @@ local function shade(a: Color3, b: Color3, s: number, lane: number): Color3
 	return a:Lerp(b, t)
 end
 
--- Построить гору сеткой. Возвращает склоны для посадки леса или nil, если сетку построить нельзя.
+-- Построить гору сеткой (без боковых бортиков — только гладкое полотно и снежные склоны).
 function TrackMesh.Build(
 	parent: Instance,
 	track: Track.Data,
-	colorAt: (number) -> Color3
+	_colorAt: (number) -> Color3
 ): { Scenery.Shoulder }?
 	local floorY = Scenery.FloorY(track)
 	local count = math.floor(track.length / M.RingStep) + 1
@@ -181,7 +181,6 @@ function TrackMesh.Build(
 		chunk += 1
 		local last = math.min(first + M.ChunkRings, count)
 		local snow = MeshBuilder.New()
-		local paint = MeshBuilder.New()
 		local rock = MeshBuilder.New()
 
 		for r = first, last do
@@ -193,11 +192,7 @@ function TrackMesh.Build(
 				MeshBuilder.Strip(snow, back.surface, ring.surface, function()
 					return if stripe then V.SnowA else V.SnowB
 				end)
-				local edge = colorAt(middle)
 				for index = 1, 2 do
-					MeshBuilder.Strip(paint, back.edges[index], ring.edges[index], function()
-						return edge
-					end)
 					local backShoulder, frontShoulder = back.shoulders[index], ring.shoulders[index]
 					if backShoulder and frontShoulder then
 						MeshBuilder.Strip(snow, backShoulder, frontShoulder, function(column)
@@ -232,7 +227,6 @@ function TrackMesh.Build(
 		end
 
 		local ok = MeshBuilder.Finish(snow, holder, "Snow" .. chunk, Enum.Material.Snow)
-		ok = MeshBuilder.Finish(paint, holder, "Edge" .. chunk, Enum.Material.SmoothPlastic) and ok
 		ok = MeshBuilder.Finish(rock, holder, "Rock" .. chunk, Enum.Material.Slate) and ok
 		if not ok then
 			warn("TrackMesh: гора будет из блоков")

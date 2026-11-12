@@ -216,6 +216,8 @@ function Hud.SetPowerup(kind: string?, isRoulette: boolean, onUse: (() -> ())?)
 			itemIcon.Text = "🚀"
 		elseif kind == "Fireworks" then
 			itemIcon.Text = "🎆"
+		elseif kind == "Snowball" then
+			itemIcon.Text = "❄️"
 		elseif kind == "Boost" then
 			itemIcon.Text = "⚡"
 		elseif kind == "Shield" then

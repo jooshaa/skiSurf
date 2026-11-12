@@ -321,12 +321,23 @@ do
 
 	local leaderRockets = 0
 	local trailerRockets = 0
-	for _ = 1, 100 do
-		if Powerups.RollItem(1) == "Rocket" then
+	local snowballs = 0
+	local shields = 0
+	for _ = 1, 200 do
+		local r1 = Powerups.RollItem(1)
+		local r2 = Powerups.RollItem(2)
+		local r4 = Powerups.RollItem(4)
+		if r1 == "Rocket" then
 			leaderRockets += 1
 		end
-		if Powerups.RollItem(4) == "Rocket" then
+		if r4 == "Rocket" then
 			trailerRockets += 1
+		end
+		if r1 == "Snowball" or r2 == "Snowball" or r4 == "Snowball" then
+			snowballs += 1
+		end
+		if r1 == "Shield" or r2 == "Shield" or r4 == "Shield" then
+			shields += 1
 		end
 	end
 	check(
@@ -337,6 +348,41 @@ do
 			trailerRockets,
 			leaderRockets
 		)
+	)
+	check(
+		"предметы: выпадают и снежная атака (Snowball), и щит (Shield)",
+		snowballs > 10 and shields > 10,
+		string.format("Snowball: %d, Shield: %d", snowballs, shields)
+	)
+
+	-- Без бортиков (OpenEdges): при руле в край санки вылетают за пределы полотна (state.fell = true)
+	local pOpen = physics()
+	pOpen.OpenEdges = true
+	local stOpen = SledSim.New(track, track.startS)
+	for _ = 1, 600 do
+		SledSim.Step(track, stOpen, pOpen, 1, false, 1 / 120)
+		if stOpen.fell then
+			break
+		end
+	end
+	check(
+		"без бортиков (OpenEdges): выезд за край вызывает вылет и респаун",
+		stOpen.fell
+	)
+
+	-- Щит (shielded): защищает от потери скорости на сугробах
+	local list = Obstacles.Get(track)
+	local driftTarget = list[1]
+	local stShield = SledSim.New(track, driftTarget.s - 30)
+	stShield.d = driftTarget.d
+	stShield.v = 80
+	stShield.shielded = true
+	for _ = 1, 120 do
+		SledSim.Step(track, stShield, physics(), 0, false, 1 / 120)
+	end
+	check(
+		"щит: защищает санки от ударов о препятствия на трассе",
+		stShield.hits == 0 and stShield.v >= 80
 	)
 end
 

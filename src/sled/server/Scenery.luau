@@ -405,39 +405,6 @@ local function buildTrees(
 	end
 end
 
--- Флажки вдоль краёв того же цвета, что и край: мимо них читается скорость
-local function buildFlags(parent: Instance, track: Track.Data, colorAt: (number) -> Color3)
-	for s = S.FlagEvery, track.length - S.FlagEvery, S.FlagEvery do
-		local _, _, _, width = Track.At(track, s)
-		local frame = Track.Frame(track, s, 0)
-		local color = colorAt(s)
-		for _, side in { -1, 1 } do
-			local foot = frame * CFrame.new(side * (width / 2 + S.FlagOffset), 0, 0)
-			-- Столбик стоит вертикально, как бы ни была наклонена трасса, и уходит в снег
-			local look = frame.LookVector
-			local upright = CFrame.lookAlong(
-				foot.Position - Vector3.yAxis * S.FlagSink,
-				Vector3.new(look.X, 0, look.Z)
-			)
-			block(
-				parent,
-				Vector3.new(S.FlagPole, S.FlagHeight + S.FlagSink, S.FlagPole),
-				upright * CFrame.new(0, (S.FlagHeight + S.FlagSink) / 2, 0),
-				S.FlagPoleColor,
-				Enum.Material.SmoothPlastic
-			)
-			block(
-				parent,
-				Vector3.new(S.FlagPole / 2, S.FlagSize.Y, S.FlagSize.X),
-				upright
-					* CFrame.new(0, S.FlagSink + S.FlagHeight - S.FlagSize.Y / 2, S.FlagSize.X / 2),
-				color,
-				Enum.Material.SmoothPlastic
-			)
-		end
-	end
-end
-
 local function applyLighting()
 	Lighting.ClockTime = S.ClockTime
 	Lighting.GeographicLatitude = S.Latitude
@@ -599,10 +566,9 @@ local function buildYetis(parent: Instance, track: Track.Data, shoulders: { Shou
 	return placed
 end
 
--- Всё вокруг, что строится сразу, без ожидания сети
-function Scenery.Build(parent: Instance, track: Track.Data, colorAt: (number) -> Color3)
+-- Всё вокруг, что строится сразу, без ожидания сети (без флажков/бортиков по обочинам — только знаки на опасных поворотах)
+function Scenery.Build(parent: Instance, track: Track.Data, _colorAt: (number) -> Color3)
 	buildFloor(parent, track)
-	buildFlags(parent, track, colorAt)
 	applyLighting()
 end
 

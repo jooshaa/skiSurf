@@ -14,6 +14,7 @@ local P = SledConfig.Powerups
 
 export type RocketProjectile = {
 	id: number,
+	ownerId: string,
 	s: number,
 	d: number,
 	speed: number,
@@ -28,6 +29,7 @@ export type RocketProjectile = {
 
 export type FireworkProjectile = {
 	id: number,
+	ownerId: string,
 	s: number,
 	d: number,
 	lateralVelocity: number,
@@ -36,6 +38,20 @@ export type FireworkProjectile = {
 	age: number,
 	rollAngle: number,
 	colorIndex: number,
+	model: Model,
+}
+
+export type SnowballProjectile = {
+	id: number,
+	ownerId: string,
+	s: number,
+	d: number,
+	crossVelocity: number,
+	downhillSpeed: number,
+	age: number,
+	maxDuration: number,
+	rollAngle: number,
+	radius: number,
 	model: Model,
 }
 
@@ -75,6 +91,7 @@ local boxVisuals: {
 
 local activeRockets: { RocketProjectile } = {}
 local activeFireworks: { FireworkProjectile } = {}
+local activeSnowballs: { SnowballProjectile } = {}
 local nextProjId = 1
 
 local lockOnModel: Model? = nil
@@ -876,8 +893,21 @@ function PowerupEffects.CreateShield(parent: Instance): ShieldVisual
 	}
 end
 
-function PowerupEffects.UpdateShieldVisual(vis: ShieldVisual, centerCf: CFrame, clock: number)
+function PowerupEffects.UpdateShieldVisual(
+	vis: ShieldVisual,
+	centerCf: CFrame,
+	clock: number,
+	remainingTime: number?
+)
 	local base = centerCf * CFrame.new(0, 1.8, 0)
+	local blinkHide = false
+	if remainingTime and remainingTime < 1.6 then
+		blinkHide = math.floor(clock * 14) % 2 == 0
+	end
+	vis.dome.Transparency = if blinkHide then 0.82 else 0.35
+	vis.ringA.Transparency = if blinkHide then 0.85 else 0.45
+	vis.ringB.Transparency = if blinkHide then 0.85 else 0.45
+
 	vis.dome.CFrame = base * CFrame.Angles(0, clock * 1.5, 0)
 	vis.ringA.CFrame = base * CFrame.Angles(clock * 2.4, clock * 1.8, 0.6)
 	vis.ringB.CFrame = base * CFrame.Angles(-clock * 2.1, -clock * 1.4, -0.6)
@@ -888,8 +918,93 @@ function PowerupEffects.UpdateShieldVisual(vis: ShieldVisual, centerCf: CFrame, 
 		local bob = math.sin(clock * 5 + i) * 0.55
 		local radius = 4.6
 		local pos = Vector3.new(math.cos(ang) * radius, bob, math.sin(ang) * radius)
+		gem.Transparency = if blinkHide then 0.7 else 0.1
 		gem.CFrame = base * CFrame.new(pos) * CFrame.Angles(0.35, -ang, clock * 4)
 	end
+end
+
+-- 3D-модель гигантского снежного шара (ядро снега, комья наледи, кристаллы льда, снежный шлейф)
+function PowerupEffects.BuildSnowballModel(model: Model, frame: CFrame, radius: number): BasePart
+	local diameter = radius * 2
+	local snowCol = Color3.fromRGB(242, 248, 255)
+	local packedSnow = Color3.fromRGB(210, 228, 250)
+	local iceCyan = Color3.fromRGB(95, 225, 255)
+
+	local core = makePart(
+		model,
+		"SnowCore",
+		Vector3.new(diameter, diameter, diameter),
+		frame,
+		snowCol,
+		Enum.Material.Snow,
+		Enum.PartType.Ball
+	)
+	model.PrimaryPart = core
+
+	-- Выступающие снежные бугры для рельефного объёма при качении
+	local lumpOffsets = {
+		Vector3.new(0.55, 0.25, 0.15),
+		Vector3.new(-0.52, -0.22, 0.25),
+		Vector3.new(0.18, -0.55, -0.25),
+		Vector3.new(-0.20, 0.52, -0.30),
+		Vector3.new(0.25, 0.15, 0.55),
+		Vector3.new(-0.25, -0.15, -0.55),
+	}
+	for idx, off in lumpOffsets do
+		local lumpSize = diameter * 0.58
+		makePart(
+			model,
+			"SnowLump_" .. idx,
+			Vector3.new(lumpSize, lumpSize, lumpSize),
+			frame * CFrame.new(off * radius),
+			if idx % 2 == 0 then snowCol else packedSnow,
+			Enum.Material.Snow,
+			Enum.PartType.Ball
+		)
+	end
+
+	-- Вмёрзшие ледяные кристаллы на поверхности кома
+	for i = 1, 6 do
+		local ang = (i - 1) * (math.pi / 3)
+		local tilt = if i % 2 == 0 then 0.45 else -0.45
+		makePart(
+			model,
+			"IceChunk_" .. i,
+			Vector3.new(radius * 0.36, radius * 0.65, radius * 0.36),
+			frame
+				* CFrame.Angles(tilt, ang, 0)
+				* CFrame.new(0, 0, -radius * 0.88)
+				* CFrame.Angles(0.5, 0, 0.4),
+			iceCyan,
+			Enum.Material.Neon
+		)
+	end
+
+	attachRibbonTrail(
+		core,
+		Vector3.new(0, radius * 0.55, 0),
+		Vector3.new(0, -radius * 0.55, 0),
+		ColorSequence.new({
+			ColorSequenceKeypoint.new(0, snowCol),
+			ColorSequenceKeypoint.new(1, iceCyan),
+		}),
+		0.45
+	)
+
+	local snowMist = Instance.new("ParticleEmitter")
+	snowMist.LightEmission = 0.4
+	snowMist.Color = ColorSequence.new(snowCol, iceCyan)
+	snowMist.Size = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, radius * 0.55),
+		NumberSequenceKeypoint.new(1, 0.2),
+	})
+	snowMist.Lifetime = NumberRange.new(0.35, 0.65)
+	snowMist.Speed = NumberRange.new(10, 20)
+	snowMist.SpreadAngle = Vector2.new(180, 180)
+	snowMist.Rate = 45
+	snowMist.Parent = core
+
+	return core
 end
 
 -- ============================================================================
@@ -921,6 +1036,8 @@ function PowerupEffects.UpdateHeldItem(
 				end
 			elseif effectiveKind == "Fireworks" then
 				PowerupEffects.BuildFireworkModel(m, sledCf, 1, 0.9)
+			elseif effectiveKind == "Snowball" then
+				PowerupEffects.BuildSnowballModel(m, sledCf, 1.35)
 			elseif effectiveKind == "Boost" then
 				local b = PowerupEffects.CreateBoostTurbines(m)
 				b.flameL.Transparency = 1
@@ -956,7 +1073,11 @@ function PowerupEffects.UpdateHeldItem(
 			)
 		elseif heldKind == "Fireworks" then
 			heldModel:PivotTo(
-				sledCf * CFrame.new(0, 5.6 + hover, 0) * CFrame.Angles(0.25, clock * 2.5, 0)
+				sledCf * CFrame.new(0, 5.6 + hover, 0) * CFrame.Angles(0, 0, clock * 2.5)
+			)
+		elseif heldKind == "Snowball" then
+			heldModel:PivotTo(
+				sledCf * CFrame.new(0, 5.8 + hover, 0) * CFrame.Angles(clock * 2.2, clock * 2.8, 0)
 			)
 		elseif heldKind == "Boost" then
 			local sub = heldModel:FindFirstChild("NitroTurbines") :: Model?
@@ -1059,6 +1180,7 @@ function PowerupEffects.Init(track: Track.Data)
 	table.clear(boxVisuals)
 	table.clear(activeRockets)
 	table.clear(activeFireworks)
+	table.clear(activeSnowballs)
 	heldModel = nil
 	heldKind = nil
 	lockOnModel = nil
@@ -1241,14 +1363,15 @@ function PowerupEffects.PopBox(boxId: number)
 end
 
 -- ============================================================================
--- 7. ЗАПУСК, ПОЛЁТ И ВЗРЫВ РАКЕТ И САЛЮТА (С ДУГОЙ, ВРАЩЕНИЕМ И 3D-ОСКОЛКАМИ)
+-- 7. ЗАПУСК, ПОЛЁТ И ВЗРЫВ РАКЕТ, ПРЯМОГО САЛЮТА И ЛАВИНЫ СНЕЖНЫХ ШАРОВ
 -- ============================================================================
 function PowerupEffects.SpawnRocket(
 	track: Track.Data,
 	startS: number,
 	startD: number,
 	targetSledId: string?,
-	launchSpeed: number?
+	launchSpeed: number?,
+	ownerId: string?
 ): RocketProjectile
 	local model = Instance.new("Model")
 	model.Name = "Rocket_" .. nextProjId
@@ -1262,6 +1385,7 @@ function PowerupEffects.SpawnRocket(
 
 	local proj: RocketProjectile = {
 		id = nextProjId,
+		ownerId = ownerId or "player",
 		s = startS,
 		d = startD,
 		speed = actualSpeed,
@@ -1279,21 +1403,23 @@ function PowerupEffects.SpawnRocket(
 	return proj
 end
 
+-- Салют стреляет строго вперёд по полотну без прицеливания и не взрывается в руках стрелка
 function PowerupEffects.SpawnFireworks(
 	track: Track.Data,
 	startS: number,
 	startD: number,
-	launchSpeed: number?
+	launchSpeed: number?,
+	ownerId: string?
 )
 	local baseSpeed = P.Fireworks.Speed
-	local actualSpeed = if launchSpeed then math.max(baseSpeed, launchSpeed + 75) else baseSpeed
+	local actualSpeed = if launchSpeed then math.max(baseSpeed, launchSpeed + 135) else baseSpeed
 
 	for i = 1, P.Fireworks.VolleyCount do
 		local model = Instance.new("Model")
 		model.Name = "Firework_" .. nextProjId
 		model.Parent = fxFolder
 
-		local frame = Track.Frame(track, startS, startD) * CFrame.new(0, 3.0, 0)
+		local frame = Track.Frame(track, startS, startD) * CFrame.new(0, 2.4, 0)
 		PowerupEffects.BuildFireworkModel(model, frame, i, 1.1)
 
 		local spreadAngle = P.Fireworks.SpreadAngles[i] or 0
@@ -1301,10 +1427,11 @@ function PowerupEffects.SpawnFireworks(
 
 		local proj: FireworkProjectile = {
 			id = nextProjId,
+			ownerId = ownerId or "player",
 			s = startS,
 			d = startD,
 			lateralVelocity = lateralVel,
-			speed = actualSpeed * (0.94 + (i % 3) * 0.05),
+			speed = actualSpeed,
 			distanceTraveled = 0,
 			age = 0,
 			rollAngle = i * 1.2,
@@ -1314,6 +1441,118 @@ function PowerupEffects.SpawnFireworks(
 
 		nextProjId += 1
 		table.insert(activeFireworks, proj)
+	end
+end
+
+-- Вызов снегопада / шариковой атаки снегов: впереди по курсу с горы и обочин слева направо
+-- и справа налево перекатываются гигантские 3D снежные шары!
+function PowerupEffects.SpawnSnowballs(
+	track: Track.Data,
+	casterS: number,
+	casterSpeed: number?,
+	ownerId: string?
+)
+	local count = P.Snowball.Count
+	local radius = P.Snowball.Radius
+	local leadExtra = if casterSpeed then casterSpeed * 0.25 else 0
+
+	for i = 1, count do
+		local spawnS = math.min(
+			track.finishS - 20,
+			casterS + P.Snowball.StartAhead + leadExtra + (i - 1) * P.Snowball.Spacing
+		)
+		local _, _, _, width = Track.At(track, spawnS)
+		local halfWidth = width * 0.46
+
+		-- Чередуем направление: слева направо (+1) и справа налево (-1) с горы через дорогу
+		local dir = if i % 2 == 1 then 1 else -1
+		local startD = -dir * (halfWidth - (i % 3) * 4)
+
+		local model = Instance.new("Model")
+		model.Name = "GiantSnowball_" .. nextProjId
+		model.Parent = fxFolder
+
+		local frame = Track.Frame(track, spawnS, startD) * CFrame.new(0, radius, 0)
+		PowerupEffects.BuildSnowballModel(model, frame, radius)
+
+		-- Снежное облако в точке появления шара у обочины/горы
+		local cloud = makePart(
+			fxFolder,
+			"BlizzardCloud_" .. nextProjId,
+			Vector3.new(12, 5, 12),
+			frame * CFrame.new(0, 10, 0),
+			Color3.fromRGB(215, 238, 255),
+			Enum.Material.Snow,
+			Enum.PartType.Ball
+		)
+		cloud.Transparency = 0.25
+		TweenService
+			:Create(cloud, TweenInfo.new(1.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+				Size = Vector3.new(22, 7, 22),
+				Transparency = 1,
+			})
+			:Play()
+		Debris:AddItem(cloud, 1.25)
+
+		local proj: SnowballProjectile = {
+			id = nextProjId,
+			ownerId = ownerId or "player",
+			s = spawnS,
+			d = startD,
+			crossVelocity = dir * (P.Snowball.CrossSpeed + (i % 2) * 4),
+			downhillSpeed = P.Snowball.DownhillSpeed,
+			age = 0,
+			maxDuration = P.Snowball.Duration,
+			rollAngle = i * 0.9,
+			radius = radius,
+			model = model,
+		}
+
+		nextProjId += 1
+		table.insert(activeSnowballs, proj)
+	end
+end
+
+-- Мощный ледяной взрыв при столкновении с гигантским снежным шаром
+function PowerupEffects.SnowExplosion(position: Vector3)
+	local flash = makePart(
+		fxFolder,
+		"SnowFlash",
+		Vector3.new(6, 6, 6),
+		CFrame.new(position),
+		Color3.fromRGB(160, 235, 255),
+		Enum.Material.Neon,
+		Enum.PartType.Ball
+	)
+	flash.Transparency = 0.15
+	TweenService
+		:Create(flash, TweenInfo.new(0.38, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			Size = Vector3.new(24, 24, 24),
+			Transparency = 1,
+		})
+		:Play()
+	Debris:AddItem(flash, 0.42)
+
+	for i = 1, 10 do
+		local phi = (i - 1) * (math.pi * 2 / 10)
+		local dir = Vector3.new(math.cos(phi), 0.45 + (i % 3) * 0.2, math.sin(phi)).Unit
+		local chunk = makePart(
+			fxFolder,
+			"SnowChunk_" .. i,
+			Vector3.new(2.2, 2.2, 2.2),
+			CFrame.new(position),
+			if i % 2 == 0 then Color3.fromRGB(245, 250, 255) else Color3.fromRGB(100, 225, 255),
+			if i % 2 == 0 then Enum.Material.Snow else Enum.Material.Neon,
+			Enum.PartType.Ball
+		)
+		TweenService
+			:Create(chunk, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+				CFrame = CFrame.new(position + dir * 16) * CFrame.Angles(i, i * 2, 0),
+				Size = Vector3.new(0.2, 0.2, 0.2),
+				Transparency = 1,
+			})
+			:Play()
+		Debris:AddItem(chunk, 0.55)
 	end
 end
 
@@ -1442,7 +1681,7 @@ function PowerupEffects.Explosion(position: Vector3, isFirework: boolean)
 	Debris:AddItem(boomPart, 1.5)
 end
 
--- Обновление полёта ракет и салюта (вращение вокруг оси, дуга прыжка, крен при наведении)
+-- Обновление полёта ракет, прямого салюта и перекатывающихся через дорогу снежных шаров
 function PowerupEffects.UpdateProjectiles(
 	track: Track.Data,
 	dt: number,
@@ -1496,11 +1735,12 @@ function PowerupEffects.UpdateProjectiles(
 		local pulse = 1 + math.sin(r.age * 45) * 0.25
 		r.flameCone.Size = Vector3.new(1.0 * pulse, 1.0 * pulse, 2.9 * pulse)
 
-		-- Проверка попадания в гонщиков
+		-- Проверка попадания в гонщиков (никогда не бьёт самого стрелка!)
 		local hit = false
 		for _, racer in racers do
 			if
-				math.abs(racer.s - r.s) < P.Rocket.HitRadius
+				racer.id ~= r.ownerId
+				and math.abs(racer.s - r.s) < P.Rocket.HitRadius
 				and math.abs(racer.d - r.d) < P.Rocket.HitRadius
 			then
 				hit = true
@@ -1521,29 +1761,26 @@ function PowerupEffects.UpdateProjectiles(
 		end
 	end
 
-	-- 2. Веерный Салют (параболическая дуга в воздухе + спиральное вращение)
+	-- 2. Салют: стреляет прямо вперёд вдоль полотна (без самонаведения и без подрыва в руках!)
 	for i = #activeFireworks, 1, -1 do
 		local f = activeFireworks[i]
 		local ds = f.speed * dt
 		f.s += ds
-		f.d += f.lateralVelocity * dt + math.sin(f.age * 18 + f.colorIndex) * 6 * dt
+		f.d += f.lateralVelocity * dt
 		f.distanceTraveled += ds
 		f.age += dt
-		f.rollAngle += dt * 16
-
-		local ratio = math.clamp(f.distanceTraveled / P.Fireworks.Range, 0, 1)
-		local arcHeight = math.sin(ratio * math.pi) * 11.5 -- высокая красивая дуга салюта
-		local pitch = math.cos(ratio * math.pi) * 0.38
+		f.rollAngle += dt * 18
 
 		local surface = Track.Frame(track, f.s, f.d)
-			* CFrame.new(0, 2.8 + arcHeight, 0)
-			* CFrame.Angles(pitch, 0, f.rollAngle)
+			* CFrame.new(0, 2.4, 0)
+			* CFrame.Angles(0, -math.atan2(f.lateralVelocity, f.speed), f.rollAngle)
 		f.model:PivotTo(surface)
 
 		local hit = false
 		for _, racer in racers do
 			if
-				math.abs(racer.s - f.s) < P.Fireworks.ExplosionRadius
+				racer.id ~= f.ownerId
+				and math.abs(racer.s - f.s) < P.Fireworks.ExplosionRadius
 				and math.abs(racer.d - f.d) < P.Fireworks.ExplosionRadius
 			then
 				hit = true
@@ -1561,6 +1798,56 @@ function PowerupEffects.UpdateProjectiles(
 		if hit then
 			f.model:Destroy()
 			table.remove(activeFireworks, i)
+		end
+	end
+
+	-- 3. Лавина снежных шаров (Snowball): катятся поперёк дороги слева направо и справа налево!
+	for i = #activeSnowballs, 1, -1 do
+		local sb = activeSnowballs[i]
+		sb.age += dt
+		sb.s += sb.downhillSpeed * dt
+		sb.d += sb.crossVelocity * dt
+
+		local _, _, _, width = Track.At(track, sb.s)
+		local halfWidth = width * 0.48
+		if math.abs(sb.d) > halfWidth then
+			sb.d = math.sign(sb.d) * halfWidth
+			sb.crossVelocity = -sb.crossVelocity -- доходя до края дороги, шар катится обратно поперёк полотна
+		end
+
+		local linearMove = math.sqrt(sb.crossVelocity ^ 2 + sb.downhillSpeed ^ 2) * dt
+		sb.rollAngle += linearMove / sb.radius
+
+		local bounce = math.abs(math.sin(sb.age * 9 + sb.id)) * 0.65
+		local rollDir = math.sign(sb.crossVelocity)
+		local surface = Track.Frame(track, sb.s, sb.d)
+			* CFrame.new(0, sb.radius + bounce, 0)
+			* CFrame.Angles(-sb.rollAngle * 0.45, 0, -rollDir * sb.rollAngle)
+		sb.model:PivotTo(surface)
+
+		local hit = false
+		local hitRad = sb.radius + 3.2
+		for _, racer in racers do
+			if
+				racer.id ~= sb.ownerId
+				and math.abs(racer.s - sb.s) < hitRad
+				and math.abs(racer.d - sb.d) < hitRad
+			then
+				hit = true
+				PowerupEffects.SnowExplosion(surface.Position)
+				racer.onHit()
+				break
+			end
+		end
+
+		if not hit and (sb.age >= sb.maxDuration or sb.s >= track.finishS) then
+			hit = true
+			PowerupEffects.SnowExplosion(surface.Position)
+		end
+
+		if hit then
+			sb.model:Destroy()
+			table.remove(activeSnowballs, i)
 		end
 	end
 end

@@ -23,6 +23,7 @@ export type State = {
 	lastHit: number, -- номер препятствия, на которое наехали последним (0 = ещё ни на одно)
 	hits: number, -- сколько наездов за заезд
 	hitFree: number, -- сколько секунд санки не касались препятствий
+	shielded: boolean?, -- активен ли защитный щит (защищает от торможения о сугробы, йети и лаву)
 }
 
 local O = SledConfig.Obstacles
@@ -79,6 +80,7 @@ function SledSim.New(track: Track.Data, s: number): State
 		lastHit = 0,
 		hits = 0,
 		hitFree = math.huge,
+		shielded = false,
 	}
 	SledSim.Place(track, state, s, 0)
 	return state
@@ -142,11 +144,18 @@ function SledSim.Step(
 	state.s += ds
 	state.d += state.v * math.sin(state.slide) * dt
 
-	-- Край трассы: рыхлый снежный борт. Он не выбрасывает, а тормозит и возвращает на полотно.
+	-- Край трассы: в режиме OpenEdges (как в Beach Buggy Racing) бортиков нет — выезд за границу
+	-- полотна приводит к вылету в обрыв и возрождению на чекпоинте.
 	local posAfter, _, rightAfter, widthAfter = Track.At(track, state.s)
 	local limit = widthAfter / 2 - p.EdgeInset
 	state.bank = false
-	if math.abs(state.d) > limit then
+	if p.OpenEdges then
+		if math.abs(state.d) > widthAfter / 2 + 1.5 then
+			state.fell = true
+			return
+		end
+		state.bankFree += dt
+	elseif math.abs(state.d) > limit then
 		local side = math.sign(state.d)
 		state.d = side * limit
 		state.bank = true
@@ -174,7 +183,7 @@ function SledSim.Step(
 		state.bankFree += dt
 	end
 
-	-- Препятствия: наезд стоит скорости один раз и отбрасывает в сторону. В полёте их перелетают.
+	-- Препятствия: наезд стоит скорости один раз и отбрасывает в сторону. В полёте и под щитом их проходят насквозь.
 	state.time += dt
 	local touching = false
 	if grounded then
@@ -187,7 +196,7 @@ function SledSim.Step(
 				local side = state.d - Obstacles.D(obstacle, state.time)
 				if gap * gap + side * side < obstacle.radius * obstacle.radius then
 					touching = true
-					if state.hitFree > O.HitRegrip then
+					if state.hitFree > O.HitRegrip and not state.shielded then
 						local away = if side >= 0 then 1 else -1
 						state.v *= obstacle.keep
 						state.slide = away * O.Push

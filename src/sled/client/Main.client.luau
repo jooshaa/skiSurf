@@ -30,6 +30,7 @@ local RV = SledConfig.Rivals
 local player = Players.LocalPlayer
 local track = Track.Get()
 local params: SledConfig.Physics = table.clone(SledConfig.Physics)
+params.OpenEdges = true -- без бортиков: вылет за пределы дороги возрождает на чекпоинте (как в BB Racing)
 local state = SledSim.New(track, track.startS)
 local boxes = Powerups.GetBoxes(track)
 
@@ -47,6 +48,7 @@ local playerItem: Powerups.Kind? = nil
 local isRoulette = false
 local rouletteTime = 0
 local shieldActive = false
+local shieldTime = 0
 local shieldVis: PowerupEffects.ShieldVisual? = nil
 local boostVis: PowerupEffects.BoostVisual? = nil
 local boostTime = 0
@@ -64,6 +66,7 @@ type Rival = {
 	item: Powerups.Kind?,
 	itemCooldown: number,
 	shieldActive: boolean,
+	shieldTime: number,
 	shieldVis: PowerupEffects.ShieldVisual?,
 	boostVis: PowerupEffects.BoostVisual?,
 	boostTime: number,
@@ -429,7 +432,7 @@ local function setRivalPose(rival: Rival)
 	rival.model:PivotTo(cf)
 
 	if rival.shieldVis then
-		PowerupEffects.UpdateShieldVisual(rival.shieldVis, cf, clock)
+		PowerupEffects.UpdateShieldVisual(rival.shieldVis, cf, clock, rival.shieldTime)
 	end
 	if rival.boostVis then
 		PowerupEffects.UpdateBoostVisual(rival.boostVis, cf, clock)
@@ -450,7 +453,7 @@ local function findNearestRivalAhead(): Rival?
 	return nearestAhead
 end
 
--- Использование предмета игроком (ракета, салют, буст, щит)
+-- Использование предмета игроком (ракета, прямой салют, снегопад шаров, буст, щит на время)
 local function usePlayerItem()
 	if not playerItem or isRoulette then
 		return
@@ -463,11 +466,14 @@ local function usePlayerItem()
 	if item == "Rocket" then
 		local nearestAhead = findNearestRivalAhead()
 		local targetId = if nearestAhead then nearestAhead.id else nil
-		PowerupEffects.SpawnRocket(track, state.s + 10, state.d, targetId, state.v)
+		PowerupEffects.SpawnRocket(track, state.s + 10, state.d, targetId, state.v, "player")
 		camKick = math.max(camKick, C.BankKick * 1.4)
 	elseif item == "Fireworks" then
-		PowerupEffects.SpawnFireworks(track, state.s + 12, state.d, state.v)
+		PowerupEffects.SpawnFireworks(track, state.s + 10, state.d, state.v, "player")
 		camKick = math.max(camKick, C.BankKick * 1.2)
+	elseif item == "Snowball" then
+		PowerupEffects.SpawnSnowballs(track, state.s, state.v, "player")
+		camKick = math.max(camKick, C.BankKick * 1.1)
 	elseif item == "Boost" then
 		boostTime = P.Boost.Duration
 		state.v += P.Boost.ExtraSpeed
@@ -476,7 +482,9 @@ local function usePlayerItem()
 		end
 		SledView.Land(1.0)
 	elseif item == "Shield" then
+		shieldTime = P.Shield.Duration
 		shieldActive = true
+		state.shielded = true
 		if not shieldVis then
 			shieldVis = PowerupEffects.CreateShield(Workspace)
 		end
@@ -514,6 +522,7 @@ local function initRivals()
 			item = nil,
 			itemCooldown = 0,
 			shieldActive = false,
+			shieldTime = 0,
 			shieldVis = nil,
 			boostVis = nil,
 			boostTime = 0,
@@ -534,6 +543,8 @@ local function restart()
 	isRoulette = false
 	rouletteTime = 0
 	shieldActive = false
+	shieldTime = 0
+	state.shielded = false
 	if shieldVis then
 		shieldVis.model:Destroy()
 		shieldVis = nil
@@ -552,9 +563,11 @@ local function restart()
 	for _, r in rivals do
 		SledSim.Place(track, r.state, track.startS, 0)
 		r.state.d = r.startOffset
+		r.state.shielded = false
 		r.item = nil
 		r.itemCooldown = 0
 		r.shieldActive = false
+		r.shieldTime = 0
 		if r.shieldVis then
 			r.shieldVis.model:Destroy()
 			r.shieldVis = nil
@@ -576,10 +589,11 @@ end
 
 local function applyPreset(index: number)
 	local preset = SledConfig.Presets[index]
-	local fresh: { [string]: number } = table.clone(SledConfig.Physics) :: any
+	local fresh: { [string]: any } = table.clone(SledConfig.Physics) :: any
 	for key, value in preset.values :: { [string]: number } do
 		fresh[key] = value
 	end
+	fresh.OpenEdges = true
 	for key, value in fresh do
 		(params :: any)[key] = value
 	end
@@ -618,12 +632,28 @@ local function simulate(dt: number, steer: number, brake: boolean)
 end
 
 local function updateRun(dt: number, steer: number, brake: boolean)
-	-- Стан от ракеты/салюта: крутит санки
+	-- Стан от ракеты/салюта/снежного шара: крутит санки
 	if spinOutTime > 0 then
 		spinOutTime -= dt
 		steer = 0
 		brake = false
 		state.yaw = P.Rocket.SpinSpeed
+	end
+
+	-- Таймер защитного щита на время (защищает и от снарядов, и от сугробов/йети/лавы)
+	if shieldTime > 0 then
+		shieldTime -= dt
+		if shieldTime <= 0 then
+			shieldTime = 0
+			shieldActive = false
+			state.shielded = false
+		else
+			shieldActive = true
+			state.shielded = true
+		end
+	else
+		shieldActive = false
+		state.shielded = false
 	end
 
 	-- Нитро-ускорение с 3D-турбинами
@@ -671,7 +701,7 @@ local function updateRun(dt: number, steer: number, brake: boolean)
 	local currentPlayerFrame = sledFrame()
 	if shieldVis then
 		if shieldActive then
-			PowerupEffects.UpdateShieldVisual(shieldVis, currentPlayerFrame, clock)
+			PowerupEffects.UpdateShieldVisual(shieldVis, currentPlayerFrame, clock, shieldTime)
 		else
 			shieldVis.model:Destroy()
 			shieldVis = nil
@@ -703,6 +733,22 @@ local function updateRun(dt: number, steer: number, brake: boolean)
 			r.state.yaw = P.Rocket.SpinSpeed
 		else
 			rSteer, rBrake = SledBot.Control(track, r.state, SledConfig.Physics)
+		end
+
+		if r.shieldTime > 0 then
+			r.shieldTime -= dt
+			if r.shieldTime <= 0 then
+				r.shieldTime = 0
+				r.shieldActive = false
+				r.state.shielded = false
+				if r.shieldVis then
+					r.shieldVis.model:Destroy()
+					r.shieldVis = nil
+				end
+			else
+				r.shieldActive = true
+				r.state.shielded = true
+			end
 		end
 
 		if r.boostTime > 0 then
@@ -757,9 +803,18 @@ local function updateRun(dt: number, steer: number, brake: boolean)
 						end
 					end
 				end
-				PowerupEffects.SpawnRocket(track, r.state.s + 10, r.state.d, targetId, r.state.v)
+				PowerupEffects.SpawnRocket(
+					track,
+					r.state.s + 10,
+					r.state.d,
+					targetId,
+					r.state.v,
+					r.id
+				)
 			elseif rItem == "Fireworks" then
-				PowerupEffects.SpawnFireworks(track, r.state.s + 12, r.state.d, r.state.v)
+				PowerupEffects.SpawnFireworks(track, r.state.s + 10, r.state.d, r.state.v, r.id)
+			elseif rItem == "Snowball" then
+				PowerupEffects.SpawnSnowballs(track, r.state.s, r.state.v, r.id)
 			elseif rItem == "Boost" then
 				r.boostTime = P.Boost.Duration
 				r.state.v += P.Boost.ExtraSpeed
@@ -767,7 +822,9 @@ local function updateRun(dt: number, steer: number, brake: boolean)
 					r.boostVis = PowerupEffects.CreateBoostTurbines(Workspace)
 				end
 			elseif rItem == "Shield" then
+				r.shieldTime = P.Shield.Duration
 				r.shieldActive = true
+				r.state.shielded = true
 				if not r.shieldVis then
 					r.shieldVis = PowerupEffects.CreateShield(Workspace)
 				end
@@ -785,13 +842,9 @@ local function updateRun(dt: number, steer: number, brake: boolean)
 			d = state.d,
 			onHit = function()
 				if shieldActive then
-					shieldActive = false
-					if shieldVis then
-						shieldVis.model:Destroy()
-						shieldVis = nil
-					end
-					state.v += 20
-					PowerupEffects.Explosion(Track.Frame(track, state.s, state.d).Position, true)
+					-- Щит на время: отражает удар без потери щита и даёт импульс скорости!
+					state.v += 18
+					PowerupEffects.SnowExplosion(Track.Frame(track, state.s, state.d).Position)
 				else
 					spinOutTime = P.Rocket.StunDuration
 					state.v *= P.Rocket.SpeedFactor
@@ -812,15 +865,8 @@ local function updateRun(dt: number, steer: number, brake: boolean)
 			d = r.state.d,
 			onHit = function()
 				if r.shieldActive then
-					r.shieldActive = false
-					if r.shieldVis then
-						r.shieldVis.model:Destroy()
-						r.shieldVis = nil
-					end
-					PowerupEffects.Explosion(
-						Track.Frame(track, r.state.s, r.state.d).Position,
-						true
-					)
+					r.state.v += 15
+					PowerupEffects.SnowExplosion(Track.Frame(track, r.state.s, r.state.d).Position)
 				else
 					r.spinOutTime = P.Rocket.StunDuration
 					r.state.v *= P.Rocket.SpeedFactor
@@ -899,7 +945,7 @@ local function updateFinish(dt: number)
 end
 
 ----------------------------------------------------------------------------------------------------
--- Камера: сзади и сверху, смотрит туда, куда трасса повернёт
+-- Камера в стиле Beach Buggy Racing: плотно следует за направлением движения и руления санок
 ----------------------------------------------------------------------------------------------------
 
 local function updateCamera(dt: number, frame: CFrame)
@@ -920,11 +966,13 @@ local function updateCamera(dt: number, frame: CFrame)
 		return
 	end
 
-	local aheadS = state.s + C.LookAhead + state.v * C.LookAheadTime
-	local ahead, _, aheadRight = Track.At(track, aheadS)
-	local toAhead = ahead + aheadRight * state.d * C.LateralFollow - position
-	local wanted = Vector3.new(toAhead.X, 0, toAhead.Z)
-	if wanted.Magnitude > 1 then
+	-- Вращение камеры как в Beach Buggy Racing: камера следует за реальным курсом и заносом санок,
+	-- а не уводит взгляд вбок заранее на дальнюю точку дуги
+	local surfaceFrame = Track.Frame(track, state.s, state.d)
+	local sledYaw = -(state.slide * 0.65 + state.heading * 0.35)
+	local sledForward = (surfaceFrame * CFrame.Angles(0, sledYaw, 0)).LookVector
+	local wanted = Vector3.new(sledForward.X, 0, sledForward.Z)
+	if wanted.Magnitude > 0.01 then
 		local blended = camDirection:Lerp(wanted.Unit, 1 - math.exp(-C.TurnRate * dt))
 		if blended.Magnitude > 0.01 then
 			camDirection = blended.Unit
@@ -935,7 +983,7 @@ local function updateCamera(dt: number, frame: CFrame)
 	camYaw = (camYaw + dragX * C.OrbitSpeed + math.pi) % (math.pi * 2) - math.pi
 	camPitch = math.clamp(camPitch + dragY * C.OrbitSpeed, C.OrbitPitchMin, C.OrbitPitchMax)
 	camZoom = math.clamp(camZoom * (1 + C.ZoomStep) ^ -wheel, C.ZoomMin, C.ZoomMax)
-	-- Отпустил камеру: через паузу она сама возвращается за спину (на телефоне нет клавиши сброса)
+	-- Отпустил камеру: через паузу она сама возвращается за спину
 	if Input.CameraHeld() or dragX ~= 0 or dragY ~= 0 then
 		camIdle = 0
 	else
@@ -944,15 +992,14 @@ local function updateCamera(dt: number, frame: CFrame)
 			camYaw *= math.exp(-C.OrbitReturnRate * dt)
 		end
 	end
-	local turned = math.abs(camYaw) -- высота камеры не считается «поворотом»: взгляд остаётся вперёд по трассе
+	local turned = math.abs(camYaw)
 	local direction = CFrame.Angles(0, -camYaw, 0):VectorToWorldSpace(camDirection)
 
 	local distance = (C.Distance + state.v * C.DistancePerSpeed) * camZoom
-	-- В повороте камеру выносит наружу: видно, как санки уходят под тебя
 	local side = Vector3.new(-direction.Z, 0, direction.X)
 	local eye = position - direction * (distance * math.cos(camPitch)) - side * (lean * C.SideSway)
 	local eyeY = position.Y + C.Height * camZoom + distance * math.sin(camPitch)
-	-- Пока камера почти сзади, она не опускается ниже снега позади; при повороте запас плавно уходит
+	-- Пока камера почти сзади, она не опускается ниже снега позади
 	local clearance = 1 - math.clamp(turned / C.OrbitClearance, 0, 1)
 	if clearance > 0 then
 		local behind = Track.At(track, state.s - distance)
@@ -960,9 +1007,14 @@ local function updateCamera(dt: number, frame: CFrame)
 		eyeY += (lifted - eyeY) * clearance
 	end
 	eye = Vector3.new(eye.X, eyeY, eye.Z)
-	local focusGround = Track.At(track, state.s + C.FocusAhead)
+
+	local slopePitchY = surfaceFrame.LookVector.Y * C.FocusAhead * 0.55
 	local focus = position + camDirection * C.FocusAhead
-	focus = Vector3.new(focus.X, focusGround.Y + C.FocusHeight + state.air * C.AirFocus, focus.Z)
+	focus = Vector3.new(
+		focus.X,
+		position.Y + C.FocusHeight + slopePitchY + state.air * C.AirFocus,
+		focus.Z
+	)
 	-- Чем дальше камера от положения «сзади», тем больше она смотрит на сами санки
 	focus = focus:Lerp(
 		position + Vector3.new(0, C.FocusHeight, 0),
