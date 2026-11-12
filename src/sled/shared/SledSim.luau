@@ -33,8 +33,18 @@ local SledSim = {}
 local function groundHeight(track: Track.Data, s: number, d: number): number
 	local pos, _, right, width = Track.At(track, s)
 	local over = math.abs(d) - width / 2
-	local drop = if over > 0 then over * 0.24 + math.max(0, over - 5) ^ 2 * 0.065 else 0
-	return pos.Y + right.Y * d - drop
+	if over > 0 and Track.CaveDepth(track, s) <= 0 then
+		local side = math.sign(d)
+		local edgeY = pos.Y + right.Y * (side * width / 2)
+		local nearSpan = 18
+		local nearSlope = math.rad(9)
+		local outerSlope = math.rad(30)
+		local drop = if over <= nearSpan
+			then over * math.tan(nearSlope)
+			else nearSpan * math.tan(nearSlope) + (over - nearSpan) * math.tan(outerSlope)
+		return edgeY - drop
+	end
+	return pos.Y + right.Y * d
 end
 
 -- Поставить санки на трассу в точке s
@@ -146,25 +156,41 @@ function SledSim.Step(
 	state.s += ds
 	state.d += state.v * math.sin(state.slide) * dt
 
-	-- Край трассы: в режиме OpenEdges за краем дороги идёт живой наклонный снежный склон обочины!
-	-- Если чуть заступил за край (до 10.5 студов), санки кренятся на рыхлом снегу и их тянет вниз по склону,
-	-- но можно вырулить обратно. Если скатился дальше по склону (> 10.5 студов) — срывается в пропасть.
+	-- Край трассы: в режиме OpenEdges за краем дороги идёт полноценный снежный сугроб обочины (шириной ~40 студов = 100%).
+	-- На первой половине сугроба (0..45%, до 18 студов, уклон 9°) санки спокойно едут по снегу и не падают.
+	-- Дальше за перегибом (45..88%, уклон 30°) гравитация наклоняет и сильнее тянет санки вниз по склону,
+	-- и на 85–90% ширины сугроба (35.2 студа, у самого конца сугроба перед скалой) санки срываются в обрыв!
 	local _, _, _, widthAfter = Track.At(track, state.s)
 	local limit = widthAfter / 2 - p.EdgeInset
 	state.bank = false
-	if p.OpenEdges then
+	if p.OpenEdges and Track.CaveDepth(track, state.s) <= 0 then
 		local over = math.abs(state.d) - widthAfter / 2
 		if over > 0 then
 			local side = math.sign(state.d)
-			state.bank = true -- пускаем снежную пыль из-под полозьев на обочине
-			-- Рыхлый снег слегка притормаживает, а уклон обочины физически стягивает санки вниз по склону
-			state.v *= math.exp(-0.35 * dt)
-			state.d += side * (2.5 + over * 1.1) * dt
-			local slopePull = math.clamp(0.22 + over * 0.09, 0.22, 1.5)
-			state.slide = math.clamp(state.slide + side * slopePull * dt, -p.MaxSlide, p.MaxSlide)
-			state.heading =
-				math.clamp(state.heading + side * slopePull * 0.65 * dt, -p.MaxSlide, p.MaxSlide)
-			if over > 10.5 then
+			local snowbankWidth = 40 -- 100% ширины сугроба обочины (TrackMesh ShoulderWidth с учётом шума кромки)
+			local fallAt = snowbankWidth * 0.88 -- 88% (в диапазоне 85–90% конца сугроба)
+			state.bank = true -- пускаем снежную пыль из-под полозьев на сугробе обочины
+
+			if over <= 18 then
+				-- Пологая часть сугроба (0..45%): едем по снегу без падения, можно свободно вернуться на трассу
+				state.v *= math.exp(-0.18 * dt)
+				state.d += side * (0.8 + over * 0.08) * dt
+			else
+				-- Крутой склон сугроба (45..88%, уклон 30°): гравитация тянет и наклоняет санки к обрыву
+				local steepShare = math.clamp((over - 18) / (fallAt - 18), 0, 1)
+				state.v *= math.exp(-0.28 * dt)
+				state.d += side * (3.5 + steepShare * 15.0) * dt
+				local gravityTurn = 0.25 + steepShare * 1.15
+				state.slide =
+					math.clamp(state.slide + side * gravityTurn * dt, -p.MaxSlide, p.MaxSlide)
+				state.heading = math.clamp(
+					state.heading + side * gravityTurn * 0.7 * dt,
+					-p.MaxSlide,
+					p.MaxSlide
+				)
+			end
+
+			if over >= fallAt then
 				state.fell = true
 				return
 			end

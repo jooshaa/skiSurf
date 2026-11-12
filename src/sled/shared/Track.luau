@@ -133,19 +133,39 @@ function Track.At(data: Data, s: number): (Vector3, Vector3, Vector3, number, nu
 end
 
 -- Система координат поверхности в точке (s, d): X вправо, Y вверх от снега, -Z по ходу трассы.
--- За пределами полотна (|d| > width/2) поверхность плавно уходит вниз по снежному склону обочины.
+-- За пределами полотна (|d| > width/2) поверхность точно повторяет 3D-сетку снежного сугроба обочины (TrackMesh):
+-- от кромки полотна идёт горизонтально вбок (flatRight) с уклоном 9° до перегиба (18 студов), а дальше 30° к обрыву.
 function Track.Frame(data: Data, s: number, d: number): CFrame
 	local pos, tangent, right, width = Track.At(data, s)
 	local up = (-tangent):Cross(right).Unit
-	local base = CFrame.fromMatrix(pos + right * d, up:Cross(-tangent), up, -tangent)
 	local over = math.abs(d) - width / 2
-	if over > 0 then
+	if over > 0 and Track.CaveDepth(data, s) <= 0 then
 		local side = math.sign(d)
-		local drop = over * 0.24 + math.max(0, over - 5) ^ 2 * 0.065
-		local roll = math.clamp(over * 0.038, 0, 0.65)
-		return (base - Vector3.yAxis * drop) * CFrame.Angles(0, 0, -side * roll)
+		local edgePos = pos + right * (side * width / 2)
+		local flatRight = Vector3.new(right.X, 0, right.Z).Unit
+		local nearSpan = 18 -- перегиб сугроба обочины (~45% от ширины сугроба 40 студов)
+		local nearSlope = math.rad(9)
+		local outerSlope = math.rad(30)
+
+		local drop: number
+		local slopeAngle: number
+		if over <= nearSpan then
+			drop = over * math.tan(nearSlope)
+			slopeAngle = nearSlope * math.clamp(over / 4, 0, 1)
+		else
+			local past = over - nearSpan
+			drop = nearSpan * math.tan(nearSlope) + past * math.tan(outerSlope)
+			local blend = math.clamp(past / 14, 0, 1)
+			slopeAngle = nearSlope + (outerSlope - nearSlope) * blend
+		end
+
+		local worldPos = edgePos + flatRight * (side * over) - Vector3.yAxis * drop
+		local flatForward = Vector3.new(tangent.X, 0, tangent.Z).Unit
+		local edgeFrame = CFrame.fromMatrix(worldPos, flatRight, Vector3.yAxis, -flatForward)
+		local pitch = math.asin(math.clamp(tangent.Y, -0.95, 0.95))
+		return edgeFrame * CFrame.Angles(pitch, 0, -side * slopeAngle)
 	end
-	return base
+	return CFrame.fromMatrix(pos + right * d, up:Cross(-tangent), up, -tangent)
 end
 
 -- Самый крутой поворот на отрезке впереди

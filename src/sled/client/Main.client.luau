@@ -8,6 +8,7 @@ local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 
+local Obstacles = require(ReplicatedStorage.Obstacles)
 local SledConfig = require(ReplicatedStorage.SledConfig)
 local SledBot = require(ReplicatedStorage.SledBot)
 local SledSim = require(ReplicatedStorage.SledSim)
@@ -26,9 +27,12 @@ local F = SledConfig.Fx
 local Z = SledConfig.Blizzard
 local P = SledConfig.Powerups
 local RV = SledConfig.Rivals
+local O = SledConfig.Obstacles
 
 local player = Players.LocalPlayer
 local track = Track.Get()
+local obstacleList = Obstacles.Get(track)
+local roadYetisFolder: Instance? = nil
 local params: SledConfig.Physics = table.clone(SledConfig.Physics)
 params.OpenEdges = true -- без бортиков: вылет за пределы дороги возрождает на чекпоинте (как в BB Racing)
 local state = SledSim.New(track, track.startS)
@@ -533,11 +537,47 @@ local function initRivals()
 	end
 end
 
+local function updateRoadYetis()
+	if not roadYetisFolder or roadYetisFolder.Parent == nil then
+		local mountain = Workspace:FindFirstChild("Mountain")
+		local obsModel = if mountain then mountain:FindFirstChild("Obstacles") else nil
+		roadYetisFolder = if obsModel then obsModel:FindFirstChild("RoadYetis") else nil
+	end
+	if not roadYetisFolder then
+		return
+	end
+
+	local yetiYaw = math.rad(SledConfig.Assets.Yeti.yaw)
+	for index, obstacle in obstacleList do
+		if obstacle.kind == "Yeti" then
+			-- LOD: обновляем только тех йети, которые в пределах видимости игрока, или при старте
+			if math.abs(obstacle.s - state.s) < 650 or state.time == 0 then
+				local figure = roadYetisFolder:FindFirstChild(tostring(index))
+				if figure and figure:IsA("BasePart") then
+					local d = Obstacles.D(obstacle, state.time)
+					local frame = Track.Frame(track, obstacle.s, d)
+					local waddle = math.sin(state.time * O.Yeti.waddleRate + obstacle.phase)
+						* O.Yeti.waddle
+					local knockSpin = 0
+					if state.lastHit == index and state.hitFree < O.Yeti.knockTime then
+						knockSpin = (O.Yeti.knockTime - state.hitFree) * O.Yeti.knockSpin
+					end
+					figure.CFrame = frame
+						* CFrame.new(0, figure.Size.Y / 2, 0)
+						* CFrame.Angles(0, math.pi + yetiYaw + knockSpin, waddle)
+				end
+			end
+		end
+	end
+end
+
 local function restart()
+	SledSim.Reset(track, state, track.startS)
 	place(track.startS, 0)
 	camYaw = 0 -- высоту и зум игрок выбрал сам: их не сбрасываем
 	runTime = 0
 	blink = 0
+	updateRoadYetis()
 
 	playerItem = nil
 	isRoulette = false
@@ -561,7 +601,7 @@ local function restart()
 
 	Powerups.ResetBoxes(boxes)
 	for _, r in rivals do
-		SledSim.Place(track, r.state, track.startS, 0)
+		SledSim.Reset(track, r.state, track.startS)
 		r.state.d = r.startOffset
 		r.state.shielded = false
 		r.item = nil
@@ -670,8 +710,18 @@ local function updateRun(dt: number, steer: number, brake: boolean)
 		end
 	end
 
+	local hitsBefore = state.hits
 	simulate(dt, steer, brake)
 	runTime += dt
+
+	-- Если столкнулись с сугробом, йети или лавой: кивок камеры и облако снега
+	if state.hits > hitsBefore then
+		camKick = math.max(camKick, C.HitKick)
+		SledView.Land(F.HitPuff)
+	end
+
+	-- Синхронизируем 3D-модели шагающих по трассе йети с физическим расчётом SledSim (Obstacles.D)
+	updateRoadYetis()
 
 	-- Подбор боксов игроком
 	for _, box in boxes do
