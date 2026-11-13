@@ -261,7 +261,7 @@ function SledSim.Step(
 							local speedRatio = math.clamp(state.v / 90, 0.4, 1.35)
 
 							if state.shielded then
-								-- Щит поглощает урон: сугроб и лаву режет почти без потерь, о дерево/йети чуть отбивает
+								-- Щит поглощает урон: сугроб и лаву режет почти без потерь, о дерево/йети чуть отбивает по нормали
 								local shieldKeep = if obstacle.kind == "Tree"
 										or obstacle.kind == "Rock"
 										or obstacle.kind == "Yeti"
@@ -272,51 +272,97 @@ function SledSim.Step(
 									state.lastHit = index
 								end
 								if obstacle.kind == "Tree" or obstacle.kind == "Rock" then
-									state.d = obsD + away * (obstacle.radius + 0.5)
+									local dist = math.max(math.sqrt(gap * gap + side * side), 0.1)
+									state.s = obstacle.s + (gap / dist) * (obstacle.radius + 0.5)
+									state.d = obsD + (side / dist) * (obstacle.radius + 0.5)
 									state.slide += away * 0.14
 								end
 								state.lastHitKind = obstacle.kind
 								state.lastHitImpact = 0.25
 							else
-								-- Без щита: физика зависит от типа препятствия и состояния санок
+								-- Без щита: реальная физика удара без искусственного «подруливания» обратно в дорогу
 								local keep = obstacle.keep
-								local bounce = spec.bounce
 								local hop = spec.hop * speedRatio
 
 								if obstacle.kind == "Tree" or obstacle.kind == "Rock" then
-									-- Твёрдый удар: чем сильнее в лоб и выше скорость, тем жёстче потеря скорости и отскок
-									local penalty = 1
-										- (1 - obstacle.keep)
-											* (0.45 + 0.65 * headOn)
-											* math.min(1.15, speedRatio)
-									keep = math.clamp(penalty, 0.25, 0.78)
-									bounce = spec.bounce * (0.65 + 0.55 * headOn)
-									hop *= (0.5 + 0.6 * headOn)
-									-- Выталкиваем санки из ствола/валуна, чтобы не проходить сквозь модель
-									state.d = obsD + away * (obstacle.radius + 0.6)
-									state.s -= 1.1 * headOn
-									state.slide = away * bounce
-									state.heading = away * bounce * 0.9
+									-- Выталкиваем строго по 2D-нормали контакта (gap, side), а не «в сторону дороги»
+									local dist = math.max(math.sqrt(gap * gap + side * side), 0.1)
+									local nx = side / dist
+									local nz = gap / dist
+									local pushDist = obstacle.radius + 0.75
+									state.s = obstacle.s + nz * pushDist
+									state.d = obsD + nx * pushDist
+
+									if headOn >= 0.65 then
+										-- Жёсткое лобовое столкновение: резкая остановка/отскок и разворот носа
+										keep = math.clamp(0.26 - 0.08 * speedRatio, 0.14, 0.30)
+										local twist = -away * (0.45 + 0.45 * headOn)
+										state.heading =
+											math.clamp(state.heading + twist, -1.15, 1.15)
+										state.slide =
+											math.clamp(state.slide + away * 0.22, -0.95, 0.95)
+										hop *= 0.85
+									else
+										-- Удар по касательной: зацепленный полоз разворачивает нос в сторону ствола, а корпус уносит в занос
+										keep = math.clamp(0.76 - 0.22 * headOn, 0.48, 0.78)
+										state.heading = math.clamp(
+											state.heading - away * (0.24 + 0.2 * headOn),
+											-1.15,
+											1.15
+										)
+										state.slide = math.clamp(
+											state.slide + away * spec.bounce * (0.5 + 0.5 * headOn),
+											-0.95,
+											0.95
+										)
+										hop *= 0.55
+									end
 								elseif obstacle.kind == "Yeti" then
-									-- Тяжёлый движущийся йети: мощный отброс в сторону и подброс
+									-- Тяжёлый движущийся йети передаёт свой импульс движения и закручивает санки в занос
+									local yetiVel = obstacle.sway
+										* obstacle.rate
+										* math.cos(obstacle.phase + obstacle.rate * state.time)
+									local pushDir = if math.abs(yetiVel) > 2
+										then math.sign(yetiVel)
+										else away
 									local penalty = 1 - (1 - obstacle.keep) * (0.55 + 0.45 * headOn)
-									keep = math.clamp(penalty, 0.35, 0.72)
-									state.slide = away * bounce
-									state.heading = away * bounce * 0.85
+									keep = math.clamp(penalty, 0.35, 0.70)
+									-- Корпус толкает по импульсу йети, а нос закручивает в противоположную сторону (реальный хлыст/занос)
+									state.slide = math.clamp(
+										state.slide + pushDir * spec.bounce * 0.85,
+										-0.95,
+										0.95
+									)
+									state.heading = math.clamp(
+										state.heading - pushDir * spec.bounce * 0.95,
+										-1.15,
+										1.15
+									)
 								elseif obstacle.kind == "Drift" then
-									-- Рыхлый глубокий сугроб: вязко тормозит и подбрасывает нос, но не отбивает как стена
+									-- Глубокий сугроб: НЕ отбивает в сторону дороги, а затягивает зацепленный полоз внутрь сугроба и тормозит
 									keep = if state.v > 95
 										then math.min(0.78, obstacle.keep + 0.06)
-										else math.max(0.62, obstacle.keep - 0.04)
-									state.slide += away * bounce
-									state.heading += away * bounce * 0.6
+										else math.max(0.64, obstacle.keep - 0.03)
+									state.heading =
+										math.clamp(state.heading - away * 0.11, -1.0, 1.0)
 								else
-									-- Lava: перегрев и занос полозьев
-									state.slide += away * bounce
-									state.heading += away * bounce * 0.7
+									-- Lava: перегрев полозьев — потеря скорости и хаотичный занос без отскока
+									local wobble = if math.floor(state.time * 12) % 2 == 0
+										then 1
+										else -1
+									state.heading = math.clamp(
+										state.heading + wobble * spec.bounce,
+										-1.05,
+										1.05
+									)
+									state.slide = math.clamp(
+										state.slide - wobble * spec.bounce * 0.4,
+										-0.95,
+										0.95
+									)
 								end
 
-								state.v = math.max(18, state.v * keep)
+								state.v = math.max(12, state.v * keep)
 								if hop > 0 then
 									state.w = math.max(state.w, 0) + hop
 								end

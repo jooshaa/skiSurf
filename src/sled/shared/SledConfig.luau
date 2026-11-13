@@ -196,15 +196,15 @@ SledConfig.Input = {
 }
 
 SledConfig.Camera = {
-	Distance = 15.5,
+	Distance = 14.2,
 	DistancePerSpeed = 0.035,
-	Height = 5.8,
+	Height = 7.4,
 	MinClearance = 3.8, -- не ниже этого над снегом позади
 	LookAhead = 18,
 	LookAheadTime = 0.18, -- плюс скорость * это время
 	LateralFollow = 0.85, -- доля бокового смещения санок в точке взгляда
 	FocusAhead = 22,
-	FocusHeight = 2.5,
+	FocusHeight = 1.4,
 	AirFocus = 0.65, -- доля высоты полёта, на которую поднимается взгляд
 	TurnRate = 11.5, -- быстрое и отзывчивое вращение камеры за носом санок (как в Beach Buggy Racing)
 	FovBase = 70,

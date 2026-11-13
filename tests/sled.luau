@@ -418,12 +418,13 @@ do
 	stTreeGraze.d = treeD + 2.1
 	stTreeGraze.v = 100
 	SledSim.Step(track, stTreeGraze, physics(), 0, false, 1 / 60)
+	local treeDist = math.sqrt((stTreeFront.s - treeS) ^ 2 + (stTreeFront.d - treeD) ^ 2)
 	check(
 		"дерево на обочине: лобовой удар жёстче скользящего и выталкивает из ствола",
 		stTreeFront.hits == 1
 			and stTreeFront.lastHitKind == "Tree"
 			and stTreeFront.v < stTreeGraze.v
-			and math.abs(stTreeFront.d - treeD) > 2.6
+			and treeDist > 2.6
 	)
 	Obstacles.SetProps({})
 
