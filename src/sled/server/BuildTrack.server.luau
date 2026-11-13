@@ -165,11 +165,6 @@ task.spawn(function()
 			shoulders
 		)
 	end
-	-- Дальние горы: сеткой, а если не вышло, из клиньев
-	local peaksOk, peaksBuilt = pcall(Peaks.Build, model, track)
-	if not peaksOk or not peaksBuilt then
-		Scenery.PeakParts(model, track)
-	end
 	if ok and shoulders then
 		Scenery.Plant(model, track, shoulders)
 	else
@@ -178,4 +173,12 @@ task.spawn(function()
 	end
 	Hazards.BuildObstacles(model, track)
 	model:SetAttribute("TrackReady", true)
+
+	-- Дальние горы строим уже после готовности трассы, чтобы не задерживать старт
+	task.spawn(function()
+		local peaksOk, peaksBuilt = pcall(Peaks.Build, model, track)
+		if not peaksOk or not peaksBuilt then
+			Scenery.PeakParts(model, track)
+		end
+	end)
 end)

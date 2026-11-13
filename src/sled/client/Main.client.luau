@@ -1340,7 +1340,17 @@ local function onFrame(frameTime: number)
 	if mode == "loading" then
 		local mountain = Workspace:FindFirstChild("Mountain")
 		local ready = mountain ~= nil and mountain:GetAttribute("TrackReady") == true
-		if ready or modeTime > 5.0 then
+		local surfaceReady = false
+		if ready and phys3D then
+			local startPos = Track.Frame(track, track.startS, 0).Position
+			local hit = Workspace:Raycast(
+				startPos + Vector3.yAxis * 5,
+				Vector3.yAxis * -14,
+				phys3D.rayParams
+			)
+			surfaceReady = hit ~= nil
+		end
+		if (ready and surfaceReady) or modeTime > 30.0 then
 			Hud.SetLoading(false)
 			updateRoadYetis()
 			if phys3D then
