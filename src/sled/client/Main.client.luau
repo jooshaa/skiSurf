@@ -57,6 +57,7 @@ local shieldVis: PowerupEffects.ShieldVisual? = nil
 local boostVis: PowerupEffects.BoostVisual? = nil
 local boostTime = 0
 local spinOutTime = 0
+local bumpCooldown = 0
 local playerRank = 1
 
 -- Соперники (боты на санках)
@@ -886,6 +887,26 @@ local function updateRun(dt: number, steer: number, brake: boolean)
 		setRivalPose(r)
 	end
 
+	-- Физика столкновений санок между собой: толкание корпусами при обгоне и удары в бампер
+	if bumpCooldown > 0 then
+		bumpCooldown = math.max(0, bumpCooldown - dt)
+	end
+	local playerBumped = false
+	for i, r in rivals do
+		if SledSim.CollideSleds(track, state, r.state, dt) then
+			playerBumped = true
+		end
+		for j = i + 1, #rivals do
+			SledSim.CollideSleds(track, r.state, rivals[j].state, dt)
+		end
+		setRivalPose(r)
+	end
+	if playerBumped and bumpCooldown <= 0 then
+		bumpCooldown = 0.25
+		camKick = math.max(camKick, C.BankKick * 1.35)
+		SledView.Land(0.65)
+	end
+
 	-- Обновление снарядов и попаданий (подбрасывание санок в воздух при взрыве!)
 	local racerTargets = {
 		{
@@ -971,9 +992,12 @@ local function updateRun(dt: number, steer: number, brake: boolean)
 end
 
 local function updateFall(dt: number)
-	fallVelocity -= Vector3.new(0, params.AirGravity * 1.15 * dt, 0)
-	local nextPos = fallFrame.Position + fallVelocity * dt
 	local sideSign = if state.d >= 0 then 1 else -1
+	local _, _, right = Track.At(track, state.s)
+	local flatOutward = Vector3.new(right.X, 0, right.Z).Unit * sideSign
+	-- Баллистическое падение с естественным уводом вдоль 62° скального склона, чтобы санки не проваливались внутрь скалы
+	fallVelocity += flatOutward * (14 * dt) - Vector3.new(0, params.AirGravity * 1.15 * dt, 0)
+	local nextPos = fallFrame.Position + fallVelocity * dt
 	-- В реальности санки при падении не крутят сальто, а плавно наклоняют нос вниз по траектории падения с лёгким креном в сторону обрыва
 	fallFrame = (fallFrame - fallFrame.Position + nextPos)
 		* CFrame.Angles(-R.FallSpin * dt, 0, -sideSign * R.FallRoll * dt)

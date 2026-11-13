@@ -36,21 +36,7 @@ local function groundHeight(track: Track.Data, s: number, d: number): number
 	if over > 0 and Track.CaveDepth(track, s) <= 0 then
 		local side = math.sign(d)
 		local edgeY = pos.Y + right.Y * (side * width / 2)
-		local nearSpan = 20.7
-		local fullShoulder = 46.0
-		local nearSlope = math.rad(9)
-		local outerSlope = math.rad(30)
-		local cliffSlope = math.rad(62)
-		local drop: number
-		if over <= nearSpan then
-			drop = over * math.tan(nearSlope)
-		elseif over <= fullShoulder then
-			drop = nearSpan * math.tan(nearSlope) + (over - nearSpan) * math.tan(outerSlope)
-		else
-			drop = nearSpan * math.tan(nearSlope)
-				+ (fullShoulder - nearSpan) * math.tan(outerSlope)
-				+ (over - fullShoulder) * math.tan(cliffSlope)
-		end
+		local _, _, drop = Track.ShoulderProfile(track, s, d)
 		return edgeY - drop
 	end
 	return pos.Y + right.Y * d
@@ -165,9 +151,9 @@ function SledSim.Step(
 	state.s += ds
 	state.d += state.v * math.sin(state.slide) * dt
 
-	-- Край трассы: в режиме OpenEdges за краем дороги идёт полноценный снежный сугроб обочины (шириной 46 студов = 100%).
-	-- Пока санки находятся на сугробе (от 0% до 100%, до 46 студов), они едут по реальному профилю снежного склона и НЕ падают.
-	-- Только когда санки выезжают за 100% предела сугроба (>= 46 студов, где кончается снег и начинается скальный обрыв 62°),
+	-- Край трассы: в режиме OpenEdges за краем дороги идёт полноценный снежный сугроб обочины (Track.ShoulderProfile = 100%).
+	-- Пока санки находятся на сугробе (от 0% до 100% реальной ширины fullShoulder в точке s), они едут по профилю снежного склона и НЕ падают.
+	-- Только когда санки выезжают за 100% предела сугроба (over >= fullShoulder, где кончается снег и начинается скальный обрыв 62°),
 	-- они естественно срываются вниз под действием гравитации!
 	local _, _, _, widthAfter = Track.At(track, state.s)
 	local limit = widthAfter / 2 - p.EdgeInset
@@ -176,24 +162,30 @@ function SledSim.Step(
 		local over = math.abs(state.d) - widthAfter / 2
 		if over > 0 then
 			local side = math.sign(state.d)
-			local nearSpan = 20.7 -- 45% ширины сугроба (пологий участок 9°)
-			local fullShoulder = 46.0 -- 100% ширины сугроба обочины (SledConfig.Scenery.ShoulderWidth)
+			local fullShoulder, nearSpan = Track.ShoulderProfile(track, state.s, state.d)
 			state.bank = true -- пускаем снежную пыль из-под полозьев на сугробе обочины
+
+			-- Если игрок рулит обратно к дороге (steer * side < 0), канты полозьев врезаются в снег и помогают подняться на трассу
+			local carveBack = math.max(0, -steer * side)
+			if carveBack > 0 then
+				state.d -= side * carveBack * 6.5 * dt
+			end
 
 			if over <= nearSpan then
 				-- Пологая часть сугроба (0..45%, уклон 9°): спокойно едем по снегу, можно легко вырулить обратно
-				state.v *= math.exp(-0.15 * dt)
-				state.d += side * (0.6 + over * 0.06) * dt
+				state.v *= math.exp(-0.14 * dt)
+				state.d += side * (0.5 + over * 0.05) * (1 - carveBack * 0.65) * dt
 			else
-				-- Наклонный склон сугроба (45..100%, уклон 30°): естественная гравитация уклона тянет санки вниз к краю сугроба
-				local steepShare = math.clamp((over - nearSpan) / (fullShoulder - nearSpan), 0, 1)
-				state.v *= math.exp(-0.22 * dt)
-				state.d += side * (3.0 + steepShare * 11.0) * dt
-				local gravityTurn = 0.18 + steepShare * 0.75
+				-- Наклонный склон сугроба (45..100%, уклон 30°): естественная гравитация уклона тянет санки вниз к 100% краю сугроба
+				local steepShare =
+					math.clamp((over - nearSpan) / math.max(fullShoulder - nearSpan, 1), 0, 1)
+				state.v *= math.exp(-0.20 * dt)
+				state.d += side * (2.6 + steepShare * 10.5) * (1 - carveBack * 0.45) * dt
+				local gravityTurn = (0.16 + steepShare * 0.68) * (1 - carveBack * 0.5)
 				state.slide =
 					math.clamp(state.slide + side * gravityTurn * dt, -p.MaxSlide, p.MaxSlide)
 				state.heading = math.clamp(
-					state.heading + side * gravityTurn * 0.65 * dt,
+					state.heading + side * gravityTurn * 0.6 * dt,
 					-p.MaxSlide,
 					p.MaxSlide
 				)
@@ -285,6 +277,80 @@ function SledSim.Step(
 		state.air = 0
 		state.airborne = false
 	end
+end
+
+-- Физика столкновений санок между собой (толкание корпусами при обгоне и удар в бампер сзади).
+-- Возвращает true, если между двумя санками произошёл физический контакт.
+function SledSim.CollideSleds(_track: Track.Data, a: State, b: State, dt: number): boolean
+	if a.fell or b.fell or dt <= 0 then
+		return false
+	end
+	-- Если одни санки летят высоко в воздухе над другими — столкновения нет
+	if math.abs(a.air - b.air) > 3.5 then
+		return false
+	end
+
+	local ds = a.s - b.s
+	local dd = a.d - b.d
+	local dsMax = 6.6 -- продольный габарит санок (~6.4 студа)
+	local ddMax = 3.8 -- поперечный габарит санок (~3.4 студа + полозья)
+
+	if math.abs(ds) >= dsMax or math.abs(dd) >= ddMax then
+		return false
+	end
+
+	local nx = dd / ddMax
+	local nz = ds / dsMax
+	local distSq = nx * nx + nz * nz
+	if distSq >= 1 then
+		return false
+	end
+
+	local pen = 1 - math.sqrt(math.max(distSq, 1e-4))
+	local sideDir = if dd >= 0 then 1 else -1
+
+	-- Если у одних санок активен щит, они почти не отскакивают и мощно отталкивают соперника!
+	local weightA = 1.0
+	local weightB = 1.0
+	if a.shielded and not b.shielded then
+		weightA = 0.2
+		weightB = 1.85
+	elseif b.shielded and not a.shielded then
+		weightA = 1.85
+		weightB = 0.2
+	end
+
+	-- 1. Раздвигаем корпуса в стороны, чтобы 3D-модели санок не проходили сквозь друг друга
+	local sepD = (pen * ddMax * 0.55) + 4.5 * dt
+	a.d += sideDir * sepD * weightA
+	b.d -= sideDir * sepD * weightB
+
+	-- 2. Передача бокового импульса (толкание бортами при обгоне и в поворотах)
+	local latVelA = a.v * math.sin(a.slide)
+	local latVelB = b.v * math.sin(b.slide)
+	local closingLat = (latVelB - latVelA) * sideDir
+	local bumpAngle = math.clamp(0.14 + math.max(0, closingLat) * 0.008, 0.14, 0.42)
+
+	a.slide = math.clamp(a.slide + sideDir * bumpAngle * weightA * 0.65, -0.95, 0.95)
+	a.heading = math.clamp(a.heading + sideDir * bumpAngle * weightA * 0.45, -0.95, 0.95)
+	b.slide = math.clamp(b.slide - sideDir * bumpAngle * weightB * 0.65, -0.95, 0.95)
+	b.heading = math.clamp(b.heading - sideDir * bumpAngle * weightB * 0.45, -0.95, 0.95)
+
+	-- 3. Продольный удар (таран сзади в корму впереди идущих санок)
+	if math.abs(nz) > math.abs(nx) * 0.85 then
+		local front = if ds >= 0 then a else b
+		local rear = if ds >= 0 then b else a
+		local sepS = pen * dsMax * 0.4
+		front.s += sepS
+		rear.s -= sepS
+		if rear.v > front.v then
+			local dv = rear.v - front.v
+			front.v += dv * 0.42
+			rear.v = math.max(25, rear.v - dv * 0.28)
+		end
+	end
+
+	return true
 end
 
 return SledSim

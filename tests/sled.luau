@@ -355,8 +355,8 @@ do
 		string.format("Snowball: %d, Shield: %d", snowballs, shields)
 	)
 
-	-- Без бортиков (OpenEdges): на всём сугробе обочины (от 0% до 100% = 46 студов) санки едут и не падают,
-	-- и срываются в обрыв только когда полностью выезжают за 100% сугроба (>= 46 студов)
+	-- Без бортиков (OpenEdges): на всём сугробе обочины (от 0% до 100% реальной ширины сугроба) санки едут и не падают,
+	-- и срываются в обрыв только когда полностью выезжают за 100% сугроба (over >= fullW)
 	local pOpen = physics()
 	pOpen.OpenEdges = true
 	local stOpen = SledSim.New(track, track.startS)
@@ -365,7 +365,8 @@ do
 		SledSim.Step(track, stOpen, pOpen, 1, false, 1 / 120)
 		local _, _, _, w = Track.At(track, stOpen.s)
 		local over = math.abs(stOpen.d) - w / 2
-		if over > 35 and over < 45.5 and not stOpen.fell then
+		local fullW = Track.ShoulderProfile(track, stOpen.s, stOpen.d)
+		if over > fullW * 0.78 and over < fullW and not stOpen.fell then
 			rodeOnOuterSnowbank = true
 		end
 		if stOpen.fell then
@@ -375,6 +376,19 @@ do
 	check(
 		"без бортиков (OpenEdges): санки едут по сугробу до 100% и падают только за пределами сугроба",
 		rodeOnOuterSnowbank and stOpen.fell
+	)
+
+	-- Столкновение санок корпусами (CollideSleds): боковой толчок при обгоне и преимущество щита
+	local sledA = SledSim.New(track, track.startS + 100)
+	local sledB = SledSim.New(track, track.startS + 100)
+	sledA.d = -1.0
+	sledB.d = 1.0
+	sledA.v = 90
+	sledB.v = 85
+	local bumped = SledSim.CollideSleds(track, sledA, sledB, 1 / 60)
+	check(
+		"столкновение санок: санки расталкиваются в стороны и получают боковой импульс",
+		bumped and sledA.d < -1.0 and sledB.d > 1.0 and sledA.slide < 0 and sledB.slide > 0
 	)
 
 	-- Щит (shielded): защищает от потери скорости на сугробах

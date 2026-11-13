@@ -132,9 +132,64 @@ function Track.At(data: Data, s: number): (Vector3, Vector3, Vector3, number, nu
 		kappa
 end
 
+local SC = SledConfig.Scenery
+local M = SledConfig.Mesh
+
+local function meshNoise(s: number, lane: number): number
+	return math.clamp(math.noise(s * M.NoiseScale, lane * M.NoiseLane, SC.Seed) * 2, -1, 1)
+end
+
+-- Точный профиль снежного сугроба обочины (1-в-1 с генератором 3D-сетки TrackMesh):
+-- возвращает:
+--   fullWidth: 100% реальной ширины сугроба в точке s с учётом шума кромки и радиуса виража
+--   nearSpan: расстояние до перегиба сугроба (45% от fullWidth)
+--   drop: на сколько студов снег опустился ниже кромки полотна в точке over
+--   slopeAngle: угол поперечного наклона склона (рад)
+function Track.ShoulderProfile(data: Data, s: number, d: number): (number, number, number, number)
+	local _, _, _, width, kappa = Track.At(data, s)
+	local over = math.max(0, math.abs(d) - width / 2)
+	local side = if d >= 0 then 1 else -1
+
+	local reach = SC.ShoulderWidth
+	if kappa * side > SC.InnerKappa then
+		reach = math.min(reach, 1 / math.abs(kappa) - width / 2 - M.InnerGap)
+	end
+	reach = math.max(reach, SC.ShoulderMin)
+
+	-- Неровность внешней кромки сугроба — точно по формуле TrackMesh.buildRing
+	local fullWidth = reach * (1 - M.ShoulderNoise * (0.5 + 0.5 * meshNoise(s, side)))
+	local nearSpan = fullWidth * M.MidShare
+	local baseNearDrop = nearSpan * math.tan(M.NearSlope)
+	local bump = math.min(M.ShoulderBump, baseNearDrop) * meshNoise(s, side * M.NoiseLane)
+	local midDrop = baseNearDrop - bump
+	local effectiveNearSlope = math.atan2(midDrop, math.max(nearSpan, 1))
+	local outerSlope = SC.ShoulderSlope
+	local cliffSlope = SC.SkirtSlope
+
+	local drop: number
+	local slopeAngle: number
+	if over <= nearSpan then
+		local t = if nearSpan > 0 then over / nearSpan else 0
+		drop = midDrop * t
+		slopeAngle = effectiveNearSlope * math.clamp(over / 3.5, 0, 1)
+	elseif over <= fullWidth then
+		local past = over - nearSpan
+		drop = midDrop + past * math.tan(outerSlope)
+		local blend = math.clamp(past / 7, 0, 1)
+		slopeAngle = effectiveNearSlope + (outerSlope - effectiveNearSlope) * blend
+	else
+		local outerSpan = fullWidth - nearSpan
+		local pastCliff = over - fullWidth
+		drop = midDrop + outerSpan * math.tan(outerSlope) + pastCliff * math.tan(cliffSlope)
+		local blend = math.clamp(pastCliff / 5, 0, 1)
+		slopeAngle = outerSlope + (cliffSlope - outerSlope) * blend
+	end
+
+	return fullWidth, nearSpan, drop, slopeAngle
+end
+
 -- Система координат поверхности в точке (s, d): X вправо, Y вверх от снега, -Z по ходу трассы.
--- За пределами полотна (|d| > width/2) поверхность на 100% повторяет 3D-сетку сугроба обочины (TrackMesh: ShoulderWidth = 46):
--- до перегиба (20.7 студов) уклон 9°, от перегиба до конца сугроба (46 студов = 100%) уклон 30°, а за пределами сугроба (> 46) — скальный обрыв 62°.
+-- За пределами полотна (|d| > width/2) поверхность на 100% повторяет 3D-сетку сугроба обочины (TrackMesh).
 function Track.Frame(data: Data, s: number, d: number): CFrame
 	local pos, tangent, right, width = Track.At(data, s)
 	local up = (-tangent):Cross(right).Unit
@@ -143,31 +198,7 @@ function Track.Frame(data: Data, s: number, d: number): CFrame
 		local side = math.sign(d)
 		local edgePos = pos + right * (side * width / 2)
 		local flatRight = Vector3.new(right.X, 0, right.Z).Unit
-		local nearSpan = 20.7 -- 45% от полной ширины сугроба обочины (46 * 0.45)
-		local fullShoulder = 46.0 -- 100% ширины сугроба обочины (SledConfig.Scenery.ShoulderWidth)
-		local nearSlope = math.rad(9)
-		local outerSlope = math.rad(30)
-		local cliffSlope = math.rad(62)
-
-		local drop: number
-		local slopeAngle: number
-		if over <= nearSpan then
-			drop = over * math.tan(nearSlope)
-			slopeAngle = nearSlope * math.clamp(over / 4, 0, 1)
-		elseif over <= fullShoulder then
-			local past = over - nearSpan
-			drop = nearSpan * math.tan(nearSlope) + past * math.tan(outerSlope)
-			local blend = math.clamp(past / 10, 0, 1)
-			slopeAngle = nearSlope + (outerSlope - nearSlope) * blend
-		else
-			local outerSpan = fullShoulder - nearSpan
-			local pastCliff = over - fullShoulder
-			drop = nearSpan * math.tan(nearSlope)
-				+ outerSpan * math.tan(outerSlope)
-				+ pastCliff * math.tan(cliffSlope)
-			local blend = math.clamp(pastCliff / 6, 0, 1)
-			slopeAngle = outerSlope + (cliffSlope - outerSlope) * blend
-		end
+		local _, _, drop, slopeAngle = Track.ShoulderProfile(data, s, d)
 
 		local worldPos = edgePos + flatRight * (side * over) - Vector3.yAxis * drop
 		local flatForward = Vector3.new(tangent.X, 0, tangent.Z).Unit
