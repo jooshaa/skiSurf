@@ -351,13 +351,29 @@ function SledPhysics3D.Step(
 			ctrl.align.CFrame =
 				CFrame.fromMatrix(Vector3.zero, tiltedUp:Cross(-targetLook), tiltedUp, -targetLook)
 
-			-- Резвый разгон вдоль трассы
-			local maxSpeed = if ctrl.boosted then 190 else 145
+			-- Естественный разгон с горы + мягкая тяга на старте + аэродинамическое сопротивление
+			local maxSpeed = if ctrl.boosted then 170 else 130
 			if brake then
-				vForward *= math.exp(-2.6 * dt)
-			elseif vForward < maxSpeed then
-				local accel = if ctrl.boosted then 135 else 82
-				vForward = math.min(maxSpeed, vForward + accel * dt)
+				local brakeStep = 55 * dt
+				if vForward > 6 then
+					vForward = math.max(6, vForward - brakeStep)
+				else
+					vForward *= math.exp(-2.5 * dt)
+				end
+			else
+				if ctrl.boosted then
+					vForward = math.min(maxSpeed, vForward + 75 * dt)
+				elseif vForward < 65 then
+					-- Плавный старт и поддержание хода на пологих участках
+					vForward += 18 * dt
+				end
+				-- Сопротивление воздуха, трение снега и лёгкое торможение в крутом вираже
+				local drag = (0.0014 * vForward * math.abs(vForward) + 2.2) * dt
+				local carveDrag = math.abs(steer) * 0.08 * math.abs(vForward) * dt
+				if vForward > 0 then
+					vForward = math.max(0, vForward - drag - carveDrag)
+				end
+				vForward = math.min(maxSpeed, vForward)
 			end
 
 			-- Боковое сцепление полозьев (карвинг и контролируемый занос)
