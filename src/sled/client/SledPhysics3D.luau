@@ -29,6 +29,7 @@ export type Controller = {
 	stunned: boolean,
 	falling: boolean,
 	groundNormal: Vector3,
+	headingDir: Vector3,
 	lastHitCooldown: number,
 	prevSpeed: number,
 	onImpact: ImpactCallback?,
@@ -43,10 +44,11 @@ local CORNER_OFFSETS = {
 	Vector3.new(1.35, 0, 2.2),
 }
 
-local REST_LENGTH = 2.35
-local RAY_LENGTH = 3.1
-local SPRING_K = 220
-local SPRING_DAMP = 22
+local REST_LENGTH = 2.4
+local RAY_LENGTH = 3.3
+local SPRING_K = 240
+local SPRING_DAMP = 14
+local RACE_GRAVITY = 115
 
 -- Проекция мировой 3D-позиции санок на ближайшую точку трассы (s, d)
 function SledPhysics3D.Project(track: Track.Data, pos: Vector3, hintS: number?): (number, number)
@@ -122,8 +124,8 @@ function SledPhysics3D.Create(
 	align.Mode = Enum.OrientationAlignmentMode.OneAttachment
 	align.Attachment0 = att
 	align.RigidityEnabled = false
-	align.MaxTorque = 140000
-	align.Responsiveness = 18
+	align.MaxTorque = 600000
+	align.Responsiveness = 45
 	align.Parent = chassis
 
 	local rayParams = RaycastParams.new()
@@ -153,6 +155,7 @@ function SledPhysics3D.Create(
 		stunned = false,
 		falling = false,
 		groundNormal = Vector3.yAxis,
+		headingDir = Vector3.new(0, 0, -1),
 		lastHitCooldown = 0,
 		prevSpeed = 0,
 		onImpact = onImpact,
@@ -224,6 +227,7 @@ function SledPhysics3D.Place(
 	ctrl.align.Enabled = true
 	ctrl.s = s
 	ctrl.d = d
+	ctrl.headingDir = frame.LookVector
 	ctrl.speed = speed
 	ctrl.prevSpeed = speed
 	ctrl.airTime = 0
@@ -309,12 +313,23 @@ function SledPhysics3D.Step(
 	if ctrl.falling then
 		ctrl.align.Enabled = false
 	else
+		-- Смягчаем гравитацию Roblox (196.2 -> RACE_GRAVITY), чтобы санки не казались свинцовыми
+		local lift = Workspace.Gravity - RACE_GRAVITY
+		if lift > 0 then
+			ctrl.chassis:ApplyImpulse(Vector3.yAxis * (lift * mass * dt))
+		end
+
 		ctrl.align.Enabled = true
-		local look = cf.LookVector
 		local up = if ctrl.grounded then ctrl.groundNormal else Vector3.yAxis
-		local flatLook = (look - up * look:Dot(up))
+		local physLook = cf.LookVector
+		-- Если корпус сильно развернуло столкновением, подтягиваем курс к фактическому носу
+		if ctrl.headingDir:Dot(physLook) < 0.75 then
+			ctrl.headingDir = physLook
+		end
+
+		local flatLook = ctrl.headingDir - up * ctrl.headingDir:Dot(up)
 		if flatLook.Magnitude < 0.01 then
-			flatLook = Vector3.new(look.X, 0, look.Z)
+			flatLook = Vector3.new(physLook.X, 0, physLook.Z)
 		end
 		flatLook = flatLook.Unit
 		local right = flatLook:Cross(up).Unit
@@ -323,38 +338,43 @@ function SledPhysics3D.Step(
 		local vRight = vel:Dot(right)
 
 		if ctrl.grounded and not ctrl.stunned then
-			-- Руление (поворот курса вокруг нормали снега)
-			local speedFactor = math.clamp(math.abs(vForward) / 28, 0.25, 1.0)
-			local steerRate = if brake then 2.35 else 1.85
+			-- Руление без задержки: поворачиваем курс вокруг нормали снега
+			local speedFactor = math.clamp(math.abs(vForward) / 22, 0.45, 1.0)
+			local steerRate = if brake then 2.95 else 2.45
 			local yawStep = -steer * steerRate * speedFactor * dt
 			local targetLook = (CFrame.fromAxisAngle(up, yawStep) * flatLook).Unit
+			ctrl.headingDir = targetLook
 			local targetRight = targetLook:Cross(up).Unit
-			local tilt = -steer * 0.18
+			local tilt = -steer * 0.22
 			local tiltedUp = (up * math.cos(tilt) + targetRight * math.sin(tilt)).Unit
-			ctrl.align.Responsiveness = 18
+			ctrl.align.Responsiveness = 45
 			ctrl.align.CFrame =
 				CFrame.fromMatrix(Vector3.zero, tiltedUp:Cross(-targetLook), tiltedUp, -targetLook)
 
-			-- Разгон вдоль трассы (помимо естественной гравитации с горы)
-			local maxSpeed = if ctrl.boosted then 175 else 132
+			-- Резвый разгон вдоль трассы
+			local maxSpeed = if ctrl.boosted then 190 else 145
 			if brake then
-				vForward *= math.exp(-2.3 * dt)
+				vForward *= math.exp(-2.6 * dt)
 			elseif vForward < maxSpeed then
-				local accel = if ctrl.boosted then 92 else 46
+				local accel = if ctrl.boosted then 135 else 82
 				vForward = math.min(maxSpeed, vForward + accel * dt)
 			end
 
 			-- Боковое сцепление полозьев (карвинг и контролируемый занос)
-			local grip = if brake then 2.8 else 6.6
+			local grip = if brake then 2.5 else 7.5
 			vRight *= math.exp(-grip * dt)
 
 			local vUp = vel:Dot(up)
-			ctrl.chassis.AssemblyLinearVelocity = flatLook * vForward + right * vRight + up * vUp
+			ctrl.chassis.AssemblyLinearVelocity = targetLook * vForward
+				+ targetRight * vRight
+				+ up * vUp
 		elseif not ctrl.grounded then
-			-- В воздухе мягко держим нос по траектории полёта, чтобы не переворачиваться на мелких кочках
-			ctrl.align.Responsiveness = 5
-			local airTarget = CFrame.lookAt(Vector3.zero, flatLook)
-			ctrl.align.CFrame = airTarget
+			-- В воздухе позволяем слегка подруливать и мягко держим нос по курсу
+			local airYaw = -steer * 1.05 * dt
+			local targetLook = (CFrame.fromAxisAngle(Vector3.yAxis, airYaw) * flatLook).Unit
+			ctrl.headingDir = targetLook
+			ctrl.align.Responsiveness = 12
+			ctrl.align.CFrame = CFrame.lookAt(Vector3.zero, targetLook)
 		end
 
 		ctrl.forwardSpeed = vForward
