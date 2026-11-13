@@ -30,6 +30,7 @@ export type Controller = {
 	falling: boolean,
 	groundNormal: Vector3,
 	headingDir: Vector3,
+	steerFiltered: number,
 	lastHitCooldown: number,
 	prevSpeed: number,
 	onImpact: ImpactCallback?,
@@ -156,6 +157,7 @@ function SledPhysics3D.Create(
 		falling = false,
 		groundNormal = Vector3.yAxis,
 		headingDir = Vector3.new(0, 0, -1),
+		steerFiltered = 0,
 		lastHitCooldown = 0,
 		prevSpeed = 0,
 		onImpact = onImpact,
@@ -228,6 +230,7 @@ function SledPhysics3D.Place(
 	ctrl.s = s
 	ctrl.d = d
 	ctrl.headingDir = frame.LookVector
+	ctrl.steerFiltered = 0
 	ctrl.speed = speed
 	ctrl.prevSpeed = speed
 	ctrl.airTime = 0
@@ -338,16 +341,20 @@ function SledPhysics3D.Step(
 		local vRight = vel:Dot(right)
 
 		if ctrl.grounded and not ctrl.stunned then
-			-- Руление без задержки: поворачиваем курс вокруг нормали снега
-			local speedFactor = math.clamp(math.abs(vForward) / 22, 0.45, 1.0)
-			local steerRate = if brake then 2.95 else 2.45
-			local yawStep = -steer * steerRate * speedFactor * dt
+			-- Плавный отклик руля как в Beach Buggy Racing (без резкого дёрганья на первом кадре)
+			local steerRateResp = if math.abs(steer) > 0.05 then 9.5 else 12.0
+			ctrl.steerFiltered += (steer - ctrl.steerFiltered) * (1 - math.exp(-steerRateResp * dt))
+
+			local lowSpeedScale = math.clamp(math.abs(vForward) / 26, 0.35, 1.0)
+			local highSpeedScale = math.clamp(1.0 - (vForward - 85) / 150, 0.72, 1.0)
+			local steerRate = if brake then 2.2 else 1.65
+			local yawStep = -ctrl.steerFiltered * steerRate * lowSpeedScale * highSpeedScale * dt
 			local targetLook = (CFrame.fromAxisAngle(up, yawStep) * flatLook).Unit
 			ctrl.headingDir = targetLook
 			local targetRight = targetLook:Cross(up).Unit
-			local tilt = -steer * 0.22
+			local tilt = -ctrl.steerFiltered * 0.24
 			local tiltedUp = (up * math.cos(tilt) + targetRight * math.sin(tilt)).Unit
-			ctrl.align.Responsiveness = 45
+			ctrl.align.Responsiveness = 26
 			ctrl.align.CFrame =
 				CFrame.fromMatrix(Vector3.zero, tiltedUp:Cross(-targetLook), tiltedUp, -targetLook)
 
@@ -369,15 +376,15 @@ function SledPhysics3D.Step(
 				end
 				-- Сопротивление воздуха, трение снега и лёгкое торможение в крутом вираже
 				local drag = (0.0014 * vForward * math.abs(vForward) + 2.2) * dt
-				local carveDrag = math.abs(steer) * 0.08 * math.abs(vForward) * dt
+				local carveDrag = math.abs(ctrl.steerFiltered) * 0.09 * math.abs(vForward) * dt
 				if vForward > 0 then
 					vForward = math.max(0, vForward - drag - carveDrag)
 				end
 				vForward = math.min(maxSpeed, vForward)
 			end
 
-			-- Боковое сцепление полозьев (карвинг и контролируемый занос)
-			local grip = if brake then 2.5 else 7.5
+			-- Боковое сцепление полозьев: мягкий карвинг на ходу и контролируемый занос на тормозе
+			local grip = if brake then 2.0 else 5.2
 			vRight *= math.exp(-grip * dt)
 
 			local vUp = vel:Dot(up)
