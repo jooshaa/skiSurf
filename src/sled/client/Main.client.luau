@@ -1245,11 +1245,25 @@ local function updateCamera(dt: number, frame: CFrame)
 		return
 	end
 
-	-- Вращение камеры как в Beach Buggy Racing: камера следует за реальным 3D-курсом санок
+	-- Вращение камеры как в Beach Buggy Racing: камера следует за траекторией + носом, чтобы читался угол заноса
 	local surfaceFrame = Track.Frame(track, state.s, state.d)
-	local sledForward = if phys3D
-		then frame.LookVector
-		else (surfaceFrame * CFrame.Angles(0, -(state.slide * 0.65 + state.heading * 0.35), 0)).LookVector
+	local sledForward: Vector3
+	if phys3D then
+		local physVel = phys3D.chassis.AssemblyLinearVelocity
+		local flatVel = Vector3.new(physVel.X, 0, physVel.Z)
+		local flatNose = Vector3.new(frame.LookVector.X, 0, frame.LookVector.Z)
+		if flatVel.Magnitude > 12 and flatNose.Magnitude > 0.01 then
+			sledForward = (flatVel.Unit * 0.7 + flatNose.Unit * 0.3)
+		else
+			sledForward = frame.LookVector
+		end
+	else
+		sledForward = (surfaceFrame * CFrame.Angles(
+			0,
+			-(state.slide * 0.65 + state.heading * 0.35),
+			0
+		)).LookVector
+	end
 	local wanted = Vector3.new(sledForward.X, 0, sledForward.Z)
 	if wanted.Magnitude > 0.01 then
 		local blended = camDirection:Lerp(wanted.Unit, 1 - math.exp(-C.TurnRate * dt))

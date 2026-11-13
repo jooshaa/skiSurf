@@ -335,10 +335,9 @@ function SledPhysics3D.Step(
 			flatLook = Vector3.new(physLook.X, 0, physLook.Z)
 		end
 		flatLook = flatLook.Unit
-		local right = flatLook:Cross(up).Unit
 
 		local vForward = vel:Dot(flatLook)
-		local vRight = vel:Dot(right)
+		local vRight = 0
 
 		if ctrl.grounded and not ctrl.stunned then
 			-- Плавный отклик руля как в Beach Buggy Racing (без резкого дёрганья на первом кадре)
@@ -347,7 +346,7 @@ function SledPhysics3D.Step(
 
 			local lowSpeedScale = math.clamp(math.abs(vForward) / 26, 0.35, 1.0)
 			local highSpeedScale = math.clamp(1.0 - (vForward - 85) / 150, 0.72, 1.0)
-			local steerRate = if brake then 2.2 else 1.65
+			local steerRate = if brake then 2.25 else 1.7
 			local yawStep = -ctrl.steerFiltered * steerRate * lowSpeedScale * highSpeedScale * dt
 			local targetLook = (CFrame.fromAxisAngle(up, yawStep) * flatLook).Unit
 			ctrl.headingDir = targetLook
@@ -357,6 +356,10 @@ function SledPhysics3D.Step(
 			ctrl.align.Responsiveness = 26
 			ctrl.align.CFrame =
 				CFrame.fromMatrix(Vector3.zero, tiltedUp:Cross(-targetLook), tiltedUp, -targetLook)
+
+			-- Проецируем текущий импульс на НОВЫЙ курс: появляется реальный боковой снос и инерция
+			vForward = vel:Dot(targetLook)
+			vRight = vel:Dot(targetRight)
 
 			-- Естественный разгон с горы + мягкая тяга на старте + аэродинамическое сопротивление
 			local maxSpeed = if ctrl.boosted then 170 else 130
@@ -374,17 +377,17 @@ function SledPhysics3D.Step(
 					-- Плавный старт и поддержание хода на пологих участках
 					vForward += 18 * dt
 				end
-				-- Сопротивление воздуха, трение снега и лёгкое торможение в крутом вираже
+				-- Сопротивление воздуха, трение снега и лёгкое торможение в заносе
 				local drag = (0.0014 * vForward * math.abs(vForward) + 2.2) * dt
-				local carveDrag = math.abs(ctrl.steerFiltered) * 0.09 * math.abs(vForward) * dt
+				local slipDrag = math.abs(vRight) * 0.14 * dt
 				if vForward > 0 then
-					vForward = math.max(0, vForward - drag - carveDrag)
+					vForward = math.max(0, vForward - drag - slipDrag)
 				end
 				vForward = math.min(maxSpeed, vForward)
 			end
 
 			-- Боковое сцепление полозьев: мягкий карвинг на ходу и контролируемый занос на тормозе
-			local grip = if brake then 2.0 else 5.2
+			local grip = if brake then 2.1 else 5.8
 			vRight *= math.exp(-grip * dt)
 
 			local vUp = vel:Dot(up)
