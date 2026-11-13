@@ -6,7 +6,7 @@ local Track = require(script.Parent.Track)
 
 local O = SledConfig.Obstacles
 
-export type Kind = "Drift" | "Yeti" | "Lava"
+export type Kind = "Drift" | "Yeti" | "Lava" | "Tree" | "Rock"
 
 export type Obstacle = {
 	kind: Kind,
@@ -22,6 +22,7 @@ export type Obstacle = {
 local Obstacles = {}
 
 local cached: { Obstacle }? = nil
+local cachedProps: { Obstacle } = {}
 
 -- Число от 0 до 1, одно и то же для одних и тех же index и salt
 local function rand(index: number, salt: number): number
@@ -126,6 +127,44 @@ end
 -- Где препятствие поперёк трассы в момент time
 function Obstacles.D(obstacle: Obstacle, time: number): number
 	return obstacle.d + obstacle.sway * math.sin(obstacle.phase + obstacle.rate * time)
+end
+
+-- Регистрирует деревья и валуны с обочин (в отсортированном по s порядке)
+function Obstacles.SetProps(props: { Obstacle })
+	table.sort(props, function(a, b)
+		return a.s < b.s
+	end)
+	cachedProps = props
+end
+
+function Obstacles.GetProps(): { Obstacle }
+	return cachedProps
+end
+
+-- Парсит компактную строку "s,d,r,T|R;..." от сервера в список препятствий на обочинах
+function Obstacles.ParseProps(raw: string): { Obstacle }
+	local list: { Obstacle } = {}
+	for entry in string.gmatch(raw, "[^;]+") do
+		local sStr, dStr, rStr, code = string.match(entry, "^([^,]+),([^,]+),([^,]+),([TR])$")
+		local s = if sStr then tonumber(sStr) else nil
+		local d = if dStr then tonumber(dStr) else nil
+		local r = if rStr then tonumber(rStr) else nil
+		if s and d and r and code then
+			local kind: Kind = if code == "T" then "Tree" else "Rock"
+			local spec = O[kind]
+			table.insert(list, {
+				kind = kind,
+				s = s,
+				d = d,
+				radius = r,
+				keep = spec.keep,
+				sway = 0,
+				rate = 0,
+				phase = 0,
+			})
+		end
+	end
+	return list
 end
 
 return Obstacles

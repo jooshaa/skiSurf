@@ -60,6 +60,18 @@ local spinOutTime = 0
 local bumpCooldown = 0
 local playerRank = 1
 
+-- Загружаем точные координаты деревьев и валунов с сугробов обочины от сервера
+local function syncTrackProps(inst: Instance?)
+	if inst and inst:IsA("StringValue") and inst.Name == "TrackProps" then
+		Obstacles.SetProps(Obstacles.ParseProps(inst.Value))
+		inst.Changed:Connect(function()
+			Obstacles.SetProps(Obstacles.ParseProps(inst.Value))
+		end)
+	end
+end
+syncTrackProps(ReplicatedStorage:FindFirstChild("TrackProps"))
+ReplicatedStorage.ChildAdded:Connect(syncTrackProps)
+
 -- Соперники (боты на санках)
 type Rival = {
 	id: string,
@@ -713,10 +725,23 @@ local function updateRun(dt: number, steer: number, brake: boolean)
 	simulate(dt, steer, brake)
 	runTime += dt
 
-	-- Если столкнулись с сугробом, йети или лавой: кивок камеры и облако снега
+	-- Реакция камеры и снежных брызг зависит от типа препятствия и силы удара
 	if state.hits > hitsBefore then
-		camKick = math.max(camKick, C.HitKick)
-		SledView.Land(F.HitPuff)
+		local kind = state.lastHitKind
+		local impact = state.lastHitImpact
+		if kind == "Tree" or kind == "Rock" then
+			camKick = math.max(camKick, C.HitKick * (1.2 + 1.1 * impact))
+			SledView.Land(math.clamp(0.6 + 0.45 * impact, 0.6, 1.0))
+		elseif kind == "Yeti" then
+			camKick = math.max(camKick, C.HitKick * (1.4 + 0.5 * impact))
+			SledView.Land(0.9)
+		elseif kind == "Drift" then
+			camKick = math.max(camKick, C.HitKick * 0.65)
+			SledView.Land(1.0)
+		else
+			camKick = math.max(camKick, C.HitKick * 1.25)
+			SledView.Land(F.HitPuff)
+		end
 	end
 
 	-- Синхронизируем 3D-модели шагающих по трассе йети с физическим расчётом SledSim (Obstacles.D)

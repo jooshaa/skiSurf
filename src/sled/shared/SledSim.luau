@@ -21,6 +21,8 @@ export type State = {
 	bankFree: number, -- сколько секунд санки не касались борта
 	time: number, -- секунд с начала заезда: по этим часам ходят йети
 	lastHit: number, -- номер препятствия, на которое наехали последним (0 = ещё ни на одно)
+	lastHitKind: Obstacles.Kind?, -- тип последнего препятствия (Tree, Rock, Yeti, Drift, Lava)
+	lastHitImpact: number, -- сила последнего удара (0..1)
 	hits: number, -- сколько наездов за заезд
 	hitFree: number, -- сколько секунд санки не касались препятствий
 	shielded: boolean?, -- активен ли защитный щит (защищает от торможения о сугробы, йети и лаву)
@@ -66,6 +68,8 @@ function SledSim.Reset(track: Track.Data, state: State, s: number)
 	state.time = 0
 	state.hits = 0
 	state.lastHit = 0
+	state.lastHitKind = nil
+	state.lastHitImpact = 0
 end
 
 function SledSim.New(track: Track.Data, s: number): State
@@ -85,6 +89,8 @@ function SledSim.New(track: Track.Data, s: number): State
 		bankFree = math.huge,
 		time = 0,
 		lastHit = 0,
+		lastHitKind = nil,
+		lastHitImpact = 0,
 		hits = 0,
 		hitFree = math.huge,
 		shielded = false,
@@ -227,31 +233,108 @@ function SledSim.Step(
 		state.bankFree += dt
 	end
 
-	-- Препятствия: наезд стоит скорости один раз и отбрасывает в сторону. В полёте и под щитом их проходят насквозь.
+	-- Реалистичные столкновения с препятствиями на трассе и с деревьями/валунами на сугробах обочины.
+	-- Реакция зависит от типа препятствия, высоты полёта, скорости, угла удара (лоб/касательная) и щита.
 	state.time += dt
 	local touching = false
-	if grounded then
-		for index, obstacle in Obstacles.Get(track) do
+	local function scanObstacles(list: { Obstacles.Obstacle }, recordIndex: boolean)
+		for index, obstacle in list do
 			local gap = state.s - obstacle.s
 			if gap < -obstacle.radius then
-				break -- список идёт по порядку: дальше только те, что ещё впереди
+				break -- список отсортирован по s: дальше только то, что ещё впереди
 			end
 			if gap < obstacle.radius then
-				local side = state.d - Obstacles.D(obstacle, state.time)
+				local obsD = Obstacles.D(obstacle, state.time)
+				local side = state.d - obsD
 				if gap * gap + side * side < obstacle.radius * obstacle.radius then
-					touching = true
-					if state.hitFree > O.HitRegrip and not state.shielded then
-						local away = if side >= 0 then 1 else -1
-						state.v *= obstacle.keep
-						state.slide = away * O.Push
-						state.heading = away * O.Push
-						state.lastHit = index
-						state.hits += 1
+					local spec = O[obstacle.kind]
+					if state.air <= spec.airClear then
+						touching = true
+						if state.hitFree > O.HitRegrip then
+							local away = if side >= 0 then 1 else -1
+							-- Насколько удар лобовой (1.0 = прямо по центру, 0.15 = скользом по краю)
+							local headOn = math.clamp(
+								1 - math.abs(side) / math.max(obstacle.radius, 0.1),
+								0.15,
+								1.0
+							)
+							local speedRatio = math.clamp(state.v / 90, 0.4, 1.35)
+
+							if state.shielded then
+								-- Щит поглощает урон: сугроб и лаву режет почти без потерь, о дерево/йети чуть отбивает
+								local shieldKeep = if obstacle.kind == "Tree"
+										or obstacle.kind == "Rock"
+										or obstacle.kind == "Yeti"
+									then 0.86
+									else 0.96
+								state.v *= shieldKeep
+								if obstacle.kind == "Yeti" and recordIndex then
+									state.lastHit = index
+								end
+								if obstacle.kind == "Tree" or obstacle.kind == "Rock" then
+									state.d = obsD + away * (obstacle.radius + 0.5)
+									state.slide += away * 0.14
+								end
+								state.lastHitKind = obstacle.kind
+								state.lastHitImpact = 0.25
+							else
+								-- Без щита: физика зависит от типа препятствия и состояния санок
+								local keep = obstacle.keep
+								local bounce = spec.bounce
+								local hop = spec.hop * speedRatio
+
+								if obstacle.kind == "Tree" or obstacle.kind == "Rock" then
+									-- Твёрдый удар: чем сильнее в лоб и выше скорость, тем жёстче потеря скорости и отскок
+									local penalty = 1
+										- (1 - obstacle.keep)
+											* (0.45 + 0.65 * headOn)
+											* math.min(1.15, speedRatio)
+									keep = math.clamp(penalty, 0.25, 0.78)
+									bounce = spec.bounce * (0.65 + 0.55 * headOn)
+									hop *= (0.5 + 0.6 * headOn)
+									-- Выталкиваем санки из ствола/валуна, чтобы не проходить сквозь модель
+									state.d = obsD + away * (obstacle.radius + 0.6)
+									state.s -= 1.1 * headOn
+									state.slide = away * bounce
+									state.heading = away * bounce * 0.9
+								elseif obstacle.kind == "Yeti" then
+									-- Тяжёлый движущийся йети: мощный отброс в сторону и подброс
+									local penalty = 1 - (1 - obstacle.keep) * (0.55 + 0.45 * headOn)
+									keep = math.clamp(penalty, 0.35, 0.72)
+									state.slide = away * bounce
+									state.heading = away * bounce * 0.85
+								elseif obstacle.kind == "Drift" then
+									-- Рыхлый глубокий сугроб: вязко тормозит и подбрасывает нос, но не отбивает как стена
+									keep = if state.v > 95
+										then math.min(0.78, obstacle.keep + 0.06)
+										else math.max(0.62, obstacle.keep - 0.04)
+									state.slide += away * bounce
+									state.heading += away * bounce * 0.6
+								else
+									-- Lava: перегрев и занос полозьев
+									state.slide += away * bounce
+									state.heading += away * bounce * 0.7
+								end
+
+								state.v = math.max(18, state.v * keep)
+								if hop > 0 then
+									state.w = math.max(state.w, 0) + hop
+								end
+								state.lastHit = if recordIndex then index else 0
+								state.lastHitKind = obstacle.kind
+								state.lastHitImpact = math.clamp(headOn * speedRatio, 0.2, 1.0)
+								state.hits += 1
+							end
+						end
 					end
 				end
 			end
 		end
 	end
+
+	scanObstacles(Obstacles.Get(track), true)
+	scanObstacles(Obstacles.GetProps(), false)
+
 	if touching then
 		state.hitFree = 0
 	else
@@ -336,6 +419,13 @@ function SledSim.CollideSleds(_track: Track.Data, a: State, b: State, dt: number
 	b.slide = math.clamp(b.slide - sideDir * bumpAngle * weightB * 0.65, -0.95, 0.95)
 	b.heading = math.clamp(b.heading - sideDir * bumpAngle * weightB * 0.45, -0.95, 0.95)
 
+	-- Лёгкий подброс при сильном боковом ударе на скорости
+	if closingLat > 12 then
+		local hop = math.min(5.0, (closingLat - 12) * 0.14)
+		a.w = math.max(a.w, 0) + hop * weightA * 0.5
+		b.w = math.max(b.w, 0) + hop * weightB * 0.5
+	end
+
 	-- 3. Продольный удар (таран сзади в корму впереди идущих санок)
 	if math.abs(nz) > math.abs(nx) * 0.85 then
 		local front = if ds >= 0 then a else b
@@ -347,6 +437,9 @@ function SledSim.CollideSleds(_track: Track.Data, a: State, b: State, dt: number
 			local dv = rear.v - front.v
 			front.v += dv * 0.42
 			rear.v = math.max(25, rear.v - dv * 0.28)
+			if dv > 18 then
+				front.w = math.max(front.w, 0) + math.min(5.5, dv * 0.12)
+			end
 		end
 	end
 

@@ -405,6 +405,40 @@ do
 		"щит: защищает санки от ударов о препятствия на трассе",
 		stShield.hits == 0 and stShield.v >= 80
 	)
+
+	-- Дерево на сугробе обочины: лобовой удар тормозит сильнее скользящего и выталкивает из ствола
+	local treeS = track.startS + 300
+	local treeD = 32
+	Obstacles.SetProps(Obstacles.ParseProps(string.format("%.1f,%.1f,2.6,T", treeS, treeD)))
+	local stTreeFront = SledSim.New(track, treeS - 1)
+	stTreeFront.d = treeD + 0.1
+	stTreeFront.v = 100
+	SledSim.Step(track, stTreeFront, physics(), 0, false, 1 / 60)
+	local stTreeGraze = SledSim.New(track, treeS - 1)
+	stTreeGraze.d = treeD + 2.1
+	stTreeGraze.v = 100
+	SledSim.Step(track, stTreeGraze, physics(), 0, false, 1 / 60)
+	check(
+		"дерево на обочине: лобовой удар жёстче скользящего и выталкивает из ствола",
+		stTreeFront.hits == 1
+			and stTreeFront.lastHitKind == "Tree"
+			and stTreeFront.v < stTreeGraze.v
+			and math.abs(stTreeFront.d - treeD) > 2.6
+	)
+	Obstacles.SetProps({})
+
+	-- Высокий прыжок перелетает через сугроб без потери скорости
+	local stAir = SledSim.New(track, driftTarget.s)
+	stAir.d = driftTarget.d
+	stAir.v = 90
+	stAir.y += 10
+	stAir.air = 10
+	stAir.airborne = true
+	SledSim.Step(track, stAir, physics(), 0, false, 1 / 60)
+	check(
+		"прыжок: высокий полёт над сугробом не вызывает столкновения",
+		stAir.hits == 0 and stAir.v >= 89
+	)
 end
 
 if failed > 0 then

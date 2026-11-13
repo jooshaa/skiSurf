@@ -306,10 +306,11 @@ end
 
 local function buildTrees(
 	parent: Instance,
+	track: Track.Data,
 	random: Random,
 	shoulders: { Shoulder },
 	avoid: { Vector3 }
-)
+): { string }
 	-- Рядом с йети ничего не растёт: его не должно закрывать
 	local function free(at: CFrame): boolean
 		for _, point in avoid do
@@ -320,6 +321,7 @@ local function buildTrees(
 		return true
 	end
 
+	local propEntries: { string } = {}
 	local pineAsset = SledConfig.Assets.Pine
 	local rockAsset = SledConfig.Assets.Rock
 	local pine = Scenery.LoadMesh(pineAsset.mesh, pineAsset.texture)
@@ -327,8 +329,10 @@ local function buildTrees(
 
 	for _, shoulder in shoulders do
 		if shoulder.width >= S.TreeMinShoulder then
+			local _, _, _, trackW = Track.At(track, shoulder.s)
+
 			-- Точка на склоне: от края трассы наружу
-			local function spot(): CFrame
+			local function spot(): (CFrame, number)
 				local out = random:NextNumber(S.TreeEdgeGap, shoulder.width - S.TreeOuterGap)
 				local share = out / shoulder.width
 				local point = if share < M.MidShare
@@ -337,12 +341,13 @@ local function buildTrees(
 						shoulder.outer,
 						(share - M.MidShare) / (1 - M.MidShare)
 					)
-				return CFrame.new(point) * CFrame.Angles(0, random:NextNumber(0, math.pi * 2), 0)
+				return CFrame.new(point) * CFrame.Angles(0, random:NextNumber(0, math.pi * 2), 0),
+					out
 			end
 
 			if random:NextNumber() < S.TreeChance * shoulder.weight then
 				local scale = random:NextNumber(S.TreeScaleMin, S.TreeScaleMax)
-				local at = spot()
+				local at, out = spot()
 				if not free(at) then
 					continue
 				end
@@ -372,11 +377,14 @@ local function buildTrees(
 						true
 					)
 				end
+				local d = shoulder.side * (trackW / 2 + out)
+				local radius = SledConfig.Obstacles.Tree.radius * scale
+				table.insert(propEntries, string.format("%.1f,%.1f,%.1f,T", shoulder.s, d, radius))
 			end
 
 			if random:NextNumber() < S.RockChance * shoulder.weight then
 				local scale = random:NextNumber(S.RockScaleMin, S.RockScaleMax)
-				local at = spot()
+				local at, out = spot()
 				if not free(at) then
 					continue
 				end
@@ -400,9 +408,14 @@ local function buildTrees(
 						true
 					)
 				end
+				local d = shoulder.side * (trackW / 2 + out)
+				local radius = SledConfig.Obstacles.Rock.radius * scale
+				table.insert(propEntries, string.format("%.1f,%.1f,%.1f,R", shoulder.s, d, radius))
 			end
 		end
 	end
+
+	return propEntries
 end
 
 local function applyLighting()
@@ -590,8 +603,16 @@ function Scenery.Plant(parent: Instance, track: Track.Data, all: { Shoulder })
 	local forest = Instance.new("Model")
 	forest.Name = "Forest"
 	local yetis = buildYetis(forest, track, shoulders)
-	buildTrees(forest, Random.new(S.Seed + 1), shoulders, yetis)
+	local propEntries = buildTrees(forest, track, Random.new(S.Seed + 1), shoulders, yetis)
 	forest.Parent = parent
+
+	local existing = ReplicatedStorage:FindFirstChild("TrackProps")
+	local propsVal = if existing and existing:IsA("StringValue")
+		then existing
+		else Instance.new("StringValue")
+	propsVal.Name = "TrackProps"
+	propsVal.Value = table.concat(propEntries, ";")
+	propsVal.Parent = ReplicatedStorage
 end
 
 return Scenery
