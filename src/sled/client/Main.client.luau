@@ -624,7 +624,8 @@ local function usePlayerItem()
 		PowerupEffects.SpawnRocket(track, state.s + 10, state.d, targetId, state.v, "player")
 		camKick = math.max(camKick, C.BankKick * 1.4)
 	elseif item == "Fireworks" then
-		PowerupEffects.SpawnFireworks(track, state.s + 10, state.d, state.v, "player")
+		local aimCf = if phys3D then SledPhysics3D.Pose(phys3D) else nil
+		PowerupEffects.SpawnFireworks(track, state.s + 10, state.d, state.v, "player", aimCf)
 		camKick = math.max(camKick, C.BankKick * 1.2)
 	elseif item == "Snowball" then
 		PowerupEffects.SpawnSnowballs(track, state.s, state.v, "player")

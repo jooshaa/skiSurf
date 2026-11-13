@@ -30,9 +30,8 @@ export type RocketProjectile = {
 export type FireworkProjectile = {
 	id: number,
 	ownerId: string,
-	s: number,
-	d: number,
-	lateralVelocity: number,
+	pos: Vector3,
+	vel3D: Vector3,
 	speed: number,
 	distanceTraveled: number,
 	age: number,
@@ -1109,15 +1108,15 @@ function PowerupEffects.UpdateHeldItem(
 		local hover = math.sin(clock * 5.0) * 0.25
 		if heldKind == "Rocket" then
 			heldModel:PivotTo(
-				sledCf * CFrame.new(0, 5.6 + hover, 0) * CFrame.Angles(0.08, 0, clock * 1.8)
+				sledCf * CFrame.new(0, 8.2 + hover, 0) * CFrame.Angles(0.08, 0, clock * 1.8)
 			)
 		elseif heldKind == "Fireworks" then
 			heldModel:PivotTo(
-				sledCf * CFrame.new(0, 5.6 + hover, 0) * CFrame.Angles(0, 0, clock * 2.5)
+				sledCf * CFrame.new(0, 8.2 + hover, 0) * CFrame.Angles(0, 0, clock * 2.5)
 			)
 		elseif heldKind == "Snowball" then
 			heldModel:PivotTo(
-				sledCf * CFrame.new(0, 5.8 + hover, 0) * CFrame.Angles(clock * 2.2, clock * 2.8, 0)
+				sledCf * CFrame.new(0, 8.4 + hover, 0) * CFrame.Angles(clock * 2.2, clock * 2.8, 0)
 			)
 		elseif heldKind == "Boost" then
 			local sub = heldModel:FindFirstChild("NitroTurbines") :: Model?
@@ -1126,7 +1125,7 @@ function PowerupEffects.UpdateHeldItem(
 			end
 		elseif heldKind == "Shield" then
 			heldModel:PivotTo(
-				sledCf * CFrame.new(0, 5.6 + hover, 0) * CFrame.Angles(0.4, clock * 3.2, 0.4)
+				sledCf * CFrame.new(0, 8.2 + hover, 0) * CFrame.Angles(0.4, clock * 3.2, 0.4)
 			)
 		end
 	end
@@ -1473,34 +1472,35 @@ function PowerupEffects.SpawnRocket(
 	return proj
 end
 
--- Салют стреляет строго вперёд по полотну без прицеливания и не взрывается в руках стрелка
+-- Салют стреляет строго по прямой в 3D (куда смотрит нос санок), не загибаясь по дороге
 function PowerupEffects.SpawnFireworks(
 	track: Track.Data,
 	startS: number,
 	startD: number,
 	launchSpeed: number?,
-	ownerId: string?
+	ownerId: string?,
+	launchFrame: CFrame?
 )
 	local baseSpeed = P.Fireworks.Speed
 	local actualSpeed = if launchSpeed then math.max(baseSpeed, launchSpeed + 135) else baseSpeed
+	local baseFrame = launchFrame or Track.Frame(track, startS, startD)
+	local origin = baseFrame.Position + baseFrame.LookVector * 6.0 + baseFrame.UpVector * 2.4
 
 	for i = 1, P.Fireworks.VolleyCount do
 		local model = Instance.new("Model")
 		model.Name = "Firework_" .. nextProjId
 		model.Parent = fxFolder
 
-		local frame = Track.Frame(track, startS, startD) * CFrame.new(0, 2.4, 0)
-		PowerupEffects.BuildFireworkModel(model, frame, i, 1.1)
-
 		local spreadAngle = P.Fireworks.SpreadAngles[i] or 0
-		local lateralVel = math.tan(spreadAngle) * actualSpeed
+		local dir = (CFrame.fromAxisAngle(baseFrame.UpVector, -spreadAngle) * baseFrame.LookVector).Unit
+		local frame = CFrame.lookAt(origin, origin + dir)
+		PowerupEffects.BuildFireworkModel(model, frame, i, 1.1)
 
 		local proj: FireworkProjectile = {
 			id = nextProjId,
 			ownerId = ownerId or "player",
-			s = startS,
-			d = startD,
-			lateralVelocity = lateralVel,
+			pos = origin,
+			vel3D = dir * actualSpeed,
 			speed = actualSpeed,
 			distanceTraveled = 0,
 			age = 0,
@@ -1831,38 +1831,56 @@ function PowerupEffects.UpdateProjectiles(
 		end
 	end
 
-	-- 2. Салют: стреляет прямо вперёд вдоль полотна (без самонаведения и без подрыва в руках!)
+	-- 2. Салют: летит строго по прямой в 3D (не следует за дорогой)
+	local fwRayParams = RaycastParams.new()
+	fwRayParams.FilterType = Enum.RaycastFilterType.Exclude
+	local fwExclude: { Instance } = {}
+	if fxFolder then
+		table.insert(fwExclude, fxFolder)
+	end
+	local sledVis = Workspace:FindFirstChild("Sled")
+	if sledVis then
+		table.insert(fwExclude, sledVis)
+	end
+	fwRayParams.FilterDescendantsInstances = fwExclude
+	fwRayParams.IgnoreWater = true
+
 	for i = #activeFireworks, 1, -1 do
 		local f = activeFireworks[i]
-		local ds = f.speed * dt
-		f.s += ds
-		f.d += f.lateralVelocity * dt
-		f.distanceTraveled += ds
+		local prevPos = f.pos
+		local stepVec = f.vel3D * dt
+		f.pos += stepVec
+		f.distanceTraveled += stepVec.Magnitude
 		f.age += dt
 		f.rollAngle += dt * 18
 
-		local surface = Track.Frame(track, f.s, f.d)
-			* CFrame.new(0, 2.4, 0)
-			* CFrame.Angles(0, -math.atan2(f.lateralVelocity, f.speed), f.rollAngle)
-		f.model:PivotTo(surface)
+		local cf = CFrame.lookAt(f.pos, f.pos + f.vel3D) * CFrame.Angles(0, 0, f.rollAngle)
+		f.model:PivotTo(cf)
 
 		local hit = false
 		for _, racer in racers do
-			if
-				racer.id ~= f.ownerId
-				and math.abs(racer.s - f.s) < P.Fireworks.ExplosionRadius
-				and math.abs(racer.d - f.d) < P.Fireworks.ExplosionRadius
-			then
-				hit = true
-				PowerupEffects.Explosion(surface.Position, true)
-				racer.onHit()
-				break
+			if racer.id ~= f.ownerId then
+				local racerPos = Track.Frame(track, racer.s, racer.d).Position + Vector3.yAxis * 2.2
+				if (racerPos - f.pos).Magnitude < P.Fireworks.ExplosionRadius then
+					hit = true
+					PowerupEffects.Explosion(f.pos, true)
+					racer.onHit()
+					break
+				end
 			end
 		end
 
-		if not hit and (f.distanceTraveled >= P.Fireworks.Range or f.s >= track.finishS) then
+		if not hit and f.age > 0.06 then
+			local worldHit = Workspace:Raycast(prevPos, stepVec, fwRayParams)
+			if worldHit then
+				hit = true
+				PowerupEffects.Explosion(worldHit.Position, true)
+			end
+		end
+
+		if not hit and f.distanceTraveled >= P.Fireworks.Range then
 			hit = true
-			PowerupEffects.Explosion(surface.Position, true)
+			PowerupEffects.Explosion(f.pos, true)
 		end
 
 		if hit then
