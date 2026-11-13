@@ -174,6 +174,7 @@ function TrackMesh.Build(
 	local shoulders: { Scenery.Shoulder } = {}
 	local weight = M.RingStep / (V.SegmentSamples * track.step)
 
+	local jobs: { { snow: MeshBuilder.Builder, rock: MeshBuilder.Builder, chunk: number } } = {}
 	local first = 1
 	local chunk = 0
 	local previous: Ring? = nil
@@ -226,14 +227,45 @@ function TrackMesh.Build(
 			previous = ring
 		end
 
-		local ok = MeshBuilder.Finish(snow, holder, "Snow" .. chunk, Enum.Material.Snow, true)
-		ok = MeshBuilder.Finish(rock, holder, "Rock" .. chunk, Enum.Material.Slate, true) and ok
-		if not ok then
-			warn("TrackMesh: гора будет из блоков")
-			holder:Destroy()
-			return nil
-		end
+		table.insert(jobs, { snow = snow, rock = rock, chunk = chunk })
 		first = last
+	end
+
+	-- Запускаем создание MeshPart параллельно, чтобы трасса собиралась за ~1 секунду вместо 10+
+	local remaining = #jobs * 2
+	local allOk = true
+	for _, job in jobs do
+		task.spawn(function()
+			local ok =
+				MeshBuilder.Finish(job.snow, holder, "Snow" .. job.chunk, Enum.Material.Snow, true)
+			if not ok then
+				allOk = false
+			end
+			remaining -= 1
+		end)
+		task.spawn(function()
+			local ok = MeshBuilder.Finish(
+				job.rock,
+				holder,
+				"Rock" .. job.chunk,
+				Enum.Material.Slate,
+				false
+			)
+			if not ok then
+				allOk = false
+			end
+			remaining -= 1
+		end)
+	end
+
+	while remaining > 0 do
+		task.wait()
+	end
+
+	if not allOk then
+		warn("TrackMesh: гора будет из блоков")
+		holder:Destroy()
+		return nil
 	end
 
 	holder.Parent = parent

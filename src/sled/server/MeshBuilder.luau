@@ -93,7 +93,7 @@ function MeshBuilder.Create(
 	local centre = (builder.low + builder.high) / 2
 	local mesh: EditableMesh? = nil
 	local fidelity = if collidable
-		then Enum.CollisionFidelity.PreciseConvexDecomposition
+		then Enum.CollisionFidelity.Default
 		else Enum.CollisionFidelity.Box
 	local ok, part = pcall(function(): MeshPart?
 		local created = AssetService:CreateEditableMesh()
