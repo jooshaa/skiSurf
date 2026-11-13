@@ -782,6 +782,20 @@ local function restart()
 end
 
 local function applyPreset(index: number)
+	if phys3D then
+		local preset3D = SledConfig.Presets3D[index]
+		if not preset3D then
+			return
+		end
+		for key, value in SledConfig.Physics3D do
+			phys3D.params[key] = value
+		end
+		for key, value in preset3D.values do
+			phys3D.params[key] = value
+		end
+		return
+	end
+
 	local preset = SledConfig.Presets[index]
 	local fresh: { [string]: any } = table.clone(SledConfig.Physics) :: any
 	for key, value in preset.values :: { [string]: number } do
@@ -1460,7 +1474,13 @@ phys3D = SledPhysics3D.Create(track, track.startS, excludeList, function(kind, s
 end)
 SledPhysics3D.SetFrozen(phys3D :: SledPhysics3D.Controller, true)
 
-Hud.Tuning(params :: any, applyPreset, restart)
+Hud.Tuning(
+	(phys3D :: SledPhysics3D.Controller).params,
+	applyPreset,
+	restart,
+	SledConfig.Tunable3D,
+	SledConfig.Presets3D
+)
 Hud.Result(nil, nil)
 
 UserInputService.InputBegan:Connect(function(input, processed)

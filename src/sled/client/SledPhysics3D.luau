@@ -33,6 +33,7 @@ export type Controller = {
 	steerFiltered: number,
 	lastHitCooldown: number,
 	prevSpeed: number,
+	params: { [string]: number },
 	onImpact: ImpactCallback?,
 }
 
@@ -47,9 +48,6 @@ local CORNER_OFFSETS = {
 
 local REST_LENGTH = 2.4
 local RAY_LENGTH = 3.3
-local SPRING_K = 240
-local SPRING_DAMP = 14
-local RACE_GRAVITY = 115
 
 -- Проекция мировой 3D-позиции санок на ближайшую точку трассы (s, d)
 function SledPhysics3D.Project(track: Track.Data, pos: Vector3, hintS: number?): (number, number)
@@ -160,6 +158,7 @@ function SledPhysics3D.Create(
 		steerFiltered = 0,
 		lastHitCooldown = 0,
 		prevSpeed = 0,
+		params = table.clone(SledConfig.Physics3D),
 		onImpact = onImpact,
 	}
 
@@ -280,7 +279,8 @@ function SledPhysics3D.Step(
 				minDist = math.min(minDist, result.Distance)
 				local compression = math.max(0, REST_LENGTH - result.Distance)
 				local cornerVel = ctrl.chassis:GetVelocityAtPosition(origin)
-				local spring = compression * SPRING_K - cornerVel:Dot(result.Normal) * SPRING_DAMP
+				local spring = compression * ctrl.params.SpringK
+					- cornerVel:Dot(result.Normal) * ctrl.params.SpringDamp
 				if spring > 0 then
 					local impulse = result.Normal * (math.min(spring, 950) * (mass / 4) * dt)
 					ctrl.chassis:ApplyImpulseAtPosition(impulse, origin)
@@ -316,8 +316,8 @@ function SledPhysics3D.Step(
 	if ctrl.falling then
 		ctrl.align.Enabled = false
 	else
-		-- Смягчаем гравитацию Roblox (196.2 -> RACE_GRAVITY), чтобы санки не казались свинцовыми
-		local lift = Workspace.Gravity - RACE_GRAVITY
+		-- Смягчаем гравитацию Roblox (196.2 -> RaceGravity), чтобы санки не казались свинцовыми
+		local lift = Workspace.Gravity - ctrl.params.RaceGravity
 		if lift > 0 then
 			ctrl.chassis:ApplyImpulse(Vector3.yAxis * (lift * mass * dt))
 		end
@@ -341,17 +341,18 @@ function SledPhysics3D.Step(
 
 		if ctrl.grounded and not ctrl.stunned then
 			-- Плавный отклик руля как в Beach Buggy Racing (без резкого дёрганья на первом кадре)
-			local steerRateResp = if math.abs(steer) > 0.05 then 9.5 else 12.0
+			local steerResp = ctrl.params.SteerResponse
+			local steerRateResp = if math.abs(steer) > 0.05 then steerResp else steerResp * 1.25
 			ctrl.steerFiltered += (steer - ctrl.steerFiltered) * (1 - math.exp(-steerRateResp * dt))
 
 			local lowSpeedScale = math.clamp(math.abs(vForward) / 26, 0.35, 1.0)
 			local highSpeedScale = math.clamp(1.0 - (vForward - 85) / 150, 0.72, 1.0)
-			local steerRate = if brake then 2.25 else 1.7
+			local steerRate = if brake then ctrl.params.DriftSteerRate else ctrl.params.SteerRate
 			local yawStep = -ctrl.steerFiltered * steerRate * lowSpeedScale * highSpeedScale * dt
 			local targetLook = (CFrame.fromAxisAngle(up, yawStep) * flatLook).Unit
 			ctrl.headingDir = targetLook
 			local targetRight = targetLook:Cross(up).Unit
-			local tilt = -ctrl.steerFiltered * 0.24
+			local tilt = -ctrl.steerFiltered * ctrl.params.TiltAngle
 			local tiltedUp = (up * math.cos(tilt) + targetRight * math.sin(tilt)).Unit
 			ctrl.align.Responsiveness = 26
 			ctrl.align.CFrame =
@@ -362,7 +363,8 @@ function SledPhysics3D.Step(
 			vRight = vel:Dot(targetRight)
 
 			-- Естественный разгон с горы + мягкая тяга на старте + аэродинамическое сопротивление
-			local maxSpeed = if ctrl.boosted then 170 else 130
+			local baseMax = ctrl.params.MaxSpeed
+			local maxSpeed = if ctrl.boosted then baseMax + 40 else baseMax
 			if brake then
 				local brakeStep = 55 * dt
 				if vForward > 6 then
@@ -387,7 +389,7 @@ function SledPhysics3D.Step(
 			end
 
 			-- Боковое сцепление полозьев: мягкий карвинг на ходу и контролируемый занос на тормозе
-			local grip = if brake then 2.1 else 5.8
+			local grip = if brake then ctrl.params.DriftGrip else ctrl.params.Grip
 			vRight *= math.exp(-grip * dt)
 
 			local vUp = vel:Dot(up)

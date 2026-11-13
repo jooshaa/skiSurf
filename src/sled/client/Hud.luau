@@ -310,8 +310,12 @@ end
 function Hud.Tuning(
 	params: { [string]: number },
 	onPreset: (index: number) -> (),
-	onRestart: () -> ()
+	onRestart: () -> (),
+	tunables: { { key: string, min: number, max: number } }?,
+	presets: { { id: string, values: { [string]: number } } }?
 )
+	local activeTunables = tunables or SledConfig.Tunable
+	local activePresets = presets or SledConfig.Presets
 	local function button(parent: Instance, text: string, size: UDim2, position: UDim2): TextButton
 		local item = Instance.new("TextButton")
 		item.Size = size
@@ -330,7 +334,7 @@ function Hud.Tuning(
 	end
 
 	local rowHeight = 30
-	local rows = #SledConfig.Tunable
+	local rows = #activeTunables
 	local gear = button(gui, "⚙", UDim2.fromOffset(40, 40), UDim2.fromOffset(12, 48))
 	local panel = frame(
 		gui,
@@ -346,7 +350,7 @@ function Hud.Tuning(
 	end)
 
 	local refresh: { () -> () } = {}
-	for index, preset in SledConfig.Presets do
+	for index, preset in activePresets do
 		local item = button(
 			panel,
 			tostring(index),
@@ -367,7 +371,7 @@ function Hud.Tuning(
 
 	local dragging: ((number) -> ())? = nil
 	local dragInput: InputObject? = nil -- ползунок слушает только тот палец, который его взял
-	for index, tunable in SledConfig.Tunable do
+	for index, tunable in activeTunables do
 		local bar = button(
 			panel,
 			"",

@@ -107,6 +107,51 @@ SledConfig.Tunable = {
 	{ key = "AirGravity", min = 60, max = 220 },
 }
 
+-- Настройки живой 3D-физики (лаборатория в кнопке ⚙)
+SledConfig.Physics3D = {
+	RaceGravity = 115,
+	SpringK = 240,
+	SpringDamp = 14,
+	SteerRate = 1.7,
+	DriftSteerRate = 2.25,
+	SteerResponse = 9.5,
+	Grip = 5.8,
+	DriftGrip = 2.1,
+	MaxSpeed = 130,
+	TiltAngle = 0.24,
+} :: { [string]: number }
+
+SledConfig.Presets3D = {
+	{ id = "BB Racing", values = {} },
+	{
+		id = "Drift King",
+		values = { Grip = 3.4, DriftGrip = 1.3, DriftSteerRate = 2.65, TiltAngle = 0.3 },
+	},
+	{
+		id = "Realistic",
+		values = {
+			RaceGravity = 145,
+			SpringK = 270,
+			SteerRate = 1.4,
+			Grip = 7.5,
+			SteerResponse = 7.0,
+		},
+	},
+} :: { { id: string, values: { [string]: number } } }
+
+SledConfig.Tunable3D = {
+	{ key = "RaceGravity", min = 60, max = 200 },
+	{ key = "SpringK", min = 120, max = 420 },
+	{ key = "SpringDamp", min = 4, max = 36 },
+	{ key = "SteerRate", min = 0.8, max = 3.0 },
+	{ key = "DriftSteerRate", min = 1.2, max = 3.5 },
+	{ key = "SteerResponse", min = 3, max = 20 },
+	{ key = "Grip", min = 2, max = 12 },
+	{ key = "DriftGrip", min = 0.6, max = 5.0 },
+	{ key = "MaxSpeed", min = 80, max = 180 },
+	{ key = "TiltAngle", min = 0, max = 0.45 },
+}
+
 SledConfig.Track = {
 	Step = 4, -- шаг расчёта линии трассы
 	SmoothLength = 56, -- на какой длине сглаживаются стыки кусков
