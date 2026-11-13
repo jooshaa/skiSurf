@@ -33,6 +33,7 @@ local rankLabel: TextLabel
 local itemSlot: Frame
 local itemIcon: TextLabel
 local itemUseBtn: TextButton
+local loadingOverlay: Frame
 local onItemUse: (() -> ())? = nil
 
 local function round(instance: GuiObject, radius: number)
@@ -191,7 +192,37 @@ function Hud.Create()
 		end
 	end)
 
+	-- Экран загрузки горы (чтобы игрок не видел пустую трассу до завершения генерации сетки и леса)
+	loadingOverlay =
+		frame(gui, UDim2.fromScale(1, 1), UDim2.fromScale(0, 0), Color3.fromRGB(16, 24, 42), 0.15)
+	loadingOverlay.ZIndex = 20
+	loadingOverlay.Visible = false
+	local loadCard = frame(
+		loadingOverlay,
+		UDim2.fromOffset(280, 74),
+		UDim2.new(0.5, -140, 0.5, -37),
+		Color3.fromRGB(24, 34, 58),
+		0.1
+	)
+	loadCard.ZIndex = 21
+	round(loadCard, 0.25)
+	local loadStroke = Instance.new("UIStroke")
+	loadStroke.Color = Color3.fromRGB(120, 195, 255)
+	loadStroke.Thickness = 2
+	loadStroke.Parent = loadCard
+	local loadText = label(loadCard, UDim2.fromScale(1, 1), UDim2.fromScale(0, 0))
+	loadText.Font = Enum.Font.GothamBold
+	loadText.TextSize = 20
+	loadText.ZIndex = 22
+	loadText.Text = "🏔️ Подготовка трассы..."
+
 	gui.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
+end
+
+function Hud.SetLoading(loading: boolean)
+	if loadingOverlay then
+		loadingOverlay.Visible = loading
+	end
 end
 
 -- Обновление слота предмета (рулетка, иконка, готовность)

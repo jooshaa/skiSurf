@@ -177,4 +177,5 @@ task.spawn(function()
 		Scenery.Plant(model, track, Scenery.ShoulderParts(model, track))
 	end
 	Hazards.BuildObstacles(model, track)
+	model:SetAttribute("TrackReady", true)
 end)

@@ -188,13 +188,19 @@ function Input.Update(dt: number)
 			target += 1
 		end
 	end
-	-- E поднимает камеру, Q опускает (то же, что тянуть правой кнопкой мыши вверх-вниз)
+	-- Стрелка Вверх (или E) поднимает камеру, Стрелка Вниз (или Q) опускает (в том же направлении, что и тянуть вверх-вниз)
 	if not typing() then
-		if UserInputService:IsKeyDown(Enum.KeyCode.E) then
-			cameraY += I.CameraKeySpeed * dt
-		end
-		if UserInputService:IsKeyDown(Enum.KeyCode.Q) then
+		if
+			UserInputService:IsKeyDown(Enum.KeyCode.Up)
+			or UserInputService:IsKeyDown(Enum.KeyCode.E)
+		then
 			cameraY -= I.CameraKeySpeed * dt
+		end
+		if
+			UserInputService:IsKeyDown(Enum.KeyCode.Down)
+			or UserInputService:IsKeyDown(Enum.KeyCode.Q)
+		then
+			cameraY += I.CameraKeySpeed * dt
 		end
 	end
 	local rate = if target == 0 then I.KeyRampDown else I.KeyRampUp

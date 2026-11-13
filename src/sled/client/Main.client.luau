@@ -38,8 +38,8 @@ params.OpenEdges = true -- без бортиков: вылет за предел
 local state = SledSim.New(track, track.startS)
 local boxes = Powerups.GetBoxes(track)
 
-type Mode = "countdown" | "run" | "fall" | "finish"
-local mode: Mode = "countdown"
+type Mode = "loading" | "countdown" | "run" | "fall" | "finish"
+local mode: Mode = "loading"
 local modeTime = 0 -- секунд в текущем режиме
 local runTime = 0
 local bestTime: number? = nil
@@ -98,7 +98,7 @@ local camDirection = Vector3.new(0, 0, -1)
 local camFov = C.FovBase
 local camKick = 0 -- кивок камеры после приземления, затухает
 local camYaw = 0 -- игрок повернул камеру вокруг санок, рад
-local camPitch = C.OrbitPitchDefault
+local camHeight = 0 -- высота камеры над базовой точкой в студах (+ выше, - ниже)
 local camZoom = 1
 local camIdle = 0 -- сколько секунд игрок не трогал камеру
 local clock = 0
@@ -255,7 +255,8 @@ local function createRivalModel(name: string, color: Color3, runnerColor: Color3
 		size: Vector3,
 		offset: CFrame,
 		partColor: Color3,
-		mat: Enum.Material?
+		mat: Enum.Material?,
+		meshType: Enum.MeshType?
 	): Part
 		local p = Instance.new("Part")
 		p.Name = partName
@@ -268,15 +269,43 @@ local function createRivalModel(name: string, color: Color3, runnerColor: Color3
 		p.CanTouch = false
 		p.CanQuery = false
 		p.CastShadow = false
+		if meshType then
+			local mesh = Instance.new("SpecialMesh")
+			mesh.MeshType = meshType
+			mesh.Parent = p
+		end
 		p.Parent = m
 		return p
 	end
 
+	local function addWedge(
+		partName: string,
+		size: Vector3,
+		offset: CFrame,
+		partColor: Color3,
+		mat: Enum.Material?
+	): WedgePart
+		local w = Instance.new("WedgePart")
+		w.Name = partName
+		w.Size = size
+		w.CFrame = offset
+		w.Color = partColor
+		w.Material = mat or Enum.Material.SmoothPlastic
+		w.Anchored = true
+		w.CanCollide = false
+		w.CanTouch = false
+		w.CanQuery = false
+		w.CastShadow = false
+		w.Parent = m
+		return w
+	end
+
 	local woodColor = Color3.fromRGB(222, 184, 135)
-	local darkColor = Color3.fromRGB(38, 40, 48)
+	local darkColor = Color3.fromRGB(32, 36, 46)
 	local skinColor = Color3.fromRGB(255, 218, 185)
-	local visorColor = Color3.fromRGB(0, 195, 255)
-	local stripeColor = Color3.fromRGB(245, 245, 250)
+	local visorColor = Color3.fromRGB(0, 210, 255)
+	local stripeColor = Color3.fromRGB(245, 248, 255)
+	local tailGlow = Color3.fromRGB(255, 70, 50)
 
 	local scale = 0.68
 	local yShift = 3.35
@@ -297,115 +326,216 @@ local function createRivalModel(name: string, color: Color3, runnerColor: Color3
 		return CFrame.new(pos)
 	end
 
-	-- 1. Деревянный настил из 5 планок + 3 поперечины + спинка
+	-- 1. Аэродинамичный корпус санок: обтекаемый нос, деревянная дека, боковые борта, спойлер и стоп-огни
+	addWedge(
+		"NoseFairing",
+		Vector3.new(3.40, 1.15, 2.30) * scale,
+		xf(0, -3.55, -4.60),
+		color,
+		Enum.Material.SmoothPlastic
+	)
+	addPart(
+		"NoseBumper",
+		Vector3.new(3.55, 0.50, 0.65) * scale,
+		xf(0, -3.95, -5.55),
+		darkColor,
+		Enum.Material.Metal,
+		Enum.MeshType.Sphere
+	)
 	for i = -2, 2 do
 		local slatColor = if math.abs(i) == 2 then color else woodColor
 		addPart(
 			"Slat",
-			Vector3.new(0.72, 0.20, 8.00) * scale,
-			xf(i * 0.82, -3.90, 0),
+			Vector3.new(0.68, 0.20, 7.60) * scale,
+			xf(i * 0.78, -3.90, 0.20),
 			slatColor,
 			Enum.Material.Wood
 		)
 	end
-	for _, zCross in { -3.0, 0.0, 3.0 } do
+	for _, side in { -1, 1 } do
 		addPart(
-			"Crossbeam",
-			Vector3.new(4.00, 0.20, 0.40) * scale,
-			xf(0, -4.10, zCross),
-			woodColor,
-			Enum.Material.Wood
+			"SideRail",
+			Vector3.new(0.32, 0.55, 7.40) * scale,
+			xf(side * 1.85, -3.65, 0.15),
+			color,
+			Enum.Material.SmoothPlastic
+		)
+		addPart(
+			"TailLight",
+			Vector3.new(0.45, 0.24, 0.24) * scale,
+			xf(side * 1.15, -3.35, 3.85),
+			tailGlow,
+			Enum.Material.Neon,
+			Enum.MeshType.Sphere
 		)
 	end
 	addPart(
-		"Backrest",
-		Vector3.new(1.40, 1.00, 0.24) * scale,
-		xf(0, -3.30, 3.50),
-		color,
-		Enum.Material.Wood
+		"SeatCushion",
+		Vector3.new(2.40, 0.40, 2.80) * scale,
+		xf(0, -3.68, 1.30),
+		darkColor,
+		Enum.Material.Fabric,
+		Enum.MeshType.Sphere
 	)
-
-	-- 2. Стальные полозья с загнутыми носами и стойками
+	addPart(
+		"RearSpoiler",
+		Vector3.new(3.60, 0.22, 0.85) * scale,
+		xf(0, -2.55, 3.70, -14, 0, 0),
+		color,
+		Enum.Material.SmoothPlastic
+	)
 	for _, side in { -1, 1 } do
-		local rx = side * 1.50
+		addPart(
+			"SpoilerStrut",
+			Vector3.new(0.20, 0.90, 0.35) * scale,
+			xf(side * 1.25, -3.05, 3.60),
+			darkColor,
+			Enum.Material.Metal
+		)
+	end
+
+	-- 2. Металлические полозья с загнутыми носами и амортизаторами
+	for _, side in { -1, 1 } do
+		local rx = side * 1.55
 		addPart(
 			"MainRunner",
-			Vector3.new(8.50, 0.30, 0.30) * scale,
-			xf(rx, -4.80, 0.25, 0, 90, 0),
+			Vector3.new(0.32, 0.32, 8.60) * scale,
+			xf(rx, -4.80, 0.25),
 			runnerColor,
 			Enum.Material.Metal
 		)
 		addPart(
 			"FrontCurl",
-			Vector3.new(0.76, 0.75, 0.30) * scale,
-			xf(rx, -4.44, -4.70, 0, -90, -83),
+			Vector3.new(0.32, 0.32, 1.45) * scale,
+			xf(rx, -4.42, -4.55, 32, 0, 0),
 			runnerColor,
 			Enum.Material.Metal
 		)
-		addPart(
-			"RearCurl",
-			Vector3.new(0.53, 0.46, 0.30) * scale,
-			xf(rx, -4.80, 4.53, 0, -90, 9),
-			runnerColor,
-			Enum.Material.Metal
-		)
-		for _, zStrut in { -3.0, 0.0, 3.0 } do
+		for _, zStrut in { -2.8, 0.0, 2.8 } do
 			addPart(
 				"Strut",
-				Vector3.new(0.60, 0.36, 0.36) * scale,
-				xf(rx, -4.50, zStrut, 0, 90, 90),
-				runnerColor,
-				Enum.Material.Metal
+				Vector3.new(0.28, 0.72, 0.28) * scale,
+				xf(rx, -4.35, zStrut),
+				darkColor,
+				Enum.Material.Metal,
+				Enum.MeshType.Cylinder
 			)
 		end
 	end
 
-	-- 3. Фигурка гонщика: торс с полосами, голова, шлем, лыжные очки, руки и ноги в ботинках
-	addPart("Torso", Vector3.new(2.40, 2.00, 1.60) * scale, xf(0, -2.00, 0.50), color)
-	addPart("SuitStripeV", Vector3.new(0.40, 1.60, 0.06) * scale, xf(0, -2.00, -0.30), stripeColor)
-	addPart("SuitStripeH", Vector3.new(2.00, 0.40, 0.06) * scale, xf(0, -2.00, -0.30), stripeColor)
-	addPart("Head", Vector3.new(2.50, 2.50, 2.50) * scale, xf(0, 0.30, 0.50), skinColor)
-	addPart("Helmet", Vector3.new(2.80, 2.80, 2.80) * scale, xf(0, 0.45, 0.50), color)
-	addPart("GoggleRim", Vector3.new(2.25, 0.90, 0.42) * scale, xf(0, 0.50, -0.90), darkColor)
+	-- 3. Скульптурный гонщик: округлый шлем с аэро-гребнем и визором, наклонённый торс, плечи и шарф на ветру
+	addPart(
+		"Torso",
+		Vector3.new(2.35, 2.25, 1.55) * scale,
+		xf(0, -2.05, 0.45, -16, 0, 0),
+		color,
+		Enum.Material.SmoothPlastic,
+		Enum.MeshType.Sphere
+	)
+	addPart(
+		"SuitStripe",
+		Vector3.new(0.55, 1.85, 1.62) * scale,
+		xf(0, -2.05, 0.45, -16, 0, 0),
+		stripeColor,
+		Enum.Material.SmoothPlastic,
+		Enum.MeshType.Sphere
+	)
+	addPart(
+		"Head",
+		Vector3.new(2.15, 2.15, 2.15) * scale,
+		xf(0, 0.15, 0.10),
+		skinColor,
+		Enum.Material.SmoothPlastic,
+		Enum.MeshType.Sphere
+	)
+	addPart(
+		"Helmet",
+		Vector3.new(2.65, 2.55, 2.75) * scale,
+		xf(0, 0.35, 0.15, -8, 0, 0),
+		color,
+		Enum.Material.SmoothPlastic,
+		Enum.MeshType.Sphere
+	)
+	addPart(
+		"HelmetFin",
+		Vector3.new(0.32, 0.70, 1.65) * scale,
+		xf(0, 1.25, 0.65, -20, 0, 0),
+		stripeColor,
+		Enum.Material.SmoothPlastic
+	)
+	addPart(
+		"GoggleRim",
+		Vector3.new(2.15, 0.88, 0.85) * scale,
+		xf(0, 0.30, -0.92),
+		darkColor,
+		Enum.Material.SmoothPlastic,
+		Enum.MeshType.Sphere
+	)
 	addPart(
 		"GoggleGlass",
-		Vector3.new(1.95, 0.62, 0.44) * scale,
-		xf(0, 0.50, -0.94),
+		Vector3.new(1.88, 0.60, 0.90) * scale,
+		xf(0, 0.30, -0.98),
 		visorColor,
-		Enum.Material.Neon
+		Enum.Material.Neon,
+		Enum.MeshType.Sphere
 	)
-	addPart("GoggleStrap", Vector3.new(2.90, 0.30, 2.88) * scale, xf(0, 0.50, 0.50), darkColor)
+	-- Развевающийся шарф гонщика
+	addPart(
+		"ScarfNeck",
+		Vector3.new(1.85, 0.55, 1.65) * scale,
+		xf(0, -0.90, 0.30),
+		stripeColor,
+		Enum.Material.Fabric,
+		Enum.MeshType.Sphere
+	)
+	addPart(
+		"ScarfTail",
+		Vector3.new(0.75, 0.22, 2.25) * scale,
+		xf(0.35, -0.85, 1.75, 10, -12, 0),
+		stripeColor,
+		Enum.Material.Fabric
+	)
 
 	for _, side in { -1, 1 } do
 		addPart(
+			"Shoulder",
+			Vector3.new(0.95, 0.95, 0.95) * scale,
+			xf(side * 1.25, -1.35, 0.25),
+			color,
+			Enum.Material.SmoothPlastic,
+			Enum.MeshType.Sphere
+		)
+		addPart(
 			"Sleeve",
-			Vector3.new(2.55, 0.80, 0.80) * scale,
-			xf(side * 1.50, -2.03, -0.13, 0, 90, -45),
-			color
+			Vector3.new(0.75, 0.75, 2.25) * scale,
+			xf(side * 1.42, -2.05, -0.65, -28, -side * 10, 0),
+			color,
+			Enum.Material.SmoothPlastic,
+			Enum.MeshType.Sphere
 		)
 		addPart(
 			"Hand",
-			Vector3.new(0.82, 0.82, 0.82) * scale,
-			xf(side * 1.50, -2.94, -1.04),
-			skinColor
+			Vector3.new(0.72, 0.72, 0.72) * scale,
+			xf(side * 1.45, -2.70, -1.55),
+			darkColor,
+			Enum.Material.SmoothPlastic,
+			Enum.MeshType.Sphere
 		)
 		addPart(
 			"Thigh",
-			Vector3.new(2.60, 1.00, 1.00) * scale,
-			xf(side * 0.80, -2.50, -0.30, 0, 90, 0),
-			color
-		)
-		addPart(
-			"Calf",
-			Vector3.new(1.60, 1.00, 1.00) * scale,
-			xf(side * 0.80, -2.80, -1.10, 0, -90, -90),
-			color
+			Vector3.new(0.92, 0.92, 2.35) * scale,
+			xf(side * 0.75, -2.75, -0.35, -8, 0, 0),
+			color,
+			Enum.Material.SmoothPlastic,
+			Enum.MeshType.Sphere
 		)
 		addPart(
 			"Boot",
-			Vector3.new(1.12, 0.62, 1.42) * scale,
-			xf(side * 0.80, -3.30, -1.30),
-			darkColor
+			Vector3.new(0.95, 0.65, 1.45) * scale,
+			xf(side * 0.80, -3.35, -1.65),
+			darkColor,
+			Enum.Material.SmoothPlastic,
+			Enum.MeshType.Sphere
 		)
 	end
 
@@ -1085,9 +1215,9 @@ local function updateCamera(dt: number, frame: CFrame)
 		end
 	end
 
-	-- Игрок может повернуть камеру вокруг санок, поднять её и отдалить
+	-- Игрок может повернуть камеру вокруг санок, поднять/опустить её по высоте (в росте) и приблизить/отдалить
 	camYaw = (camYaw + dragX * C.OrbitSpeed + math.pi) % (math.pi * 2) - math.pi
-	camPitch = math.clamp(camPitch + dragY * C.OrbitSpeed, C.OrbitPitchMin, C.OrbitPitchMax)
+	camHeight = math.clamp(camHeight - dragY * 0.045, -2.6, 15.0)
 	camZoom = math.clamp(camZoom * (1 + C.ZoomStep) ^ -wheel, C.ZoomMin, C.ZoomMax)
 	-- Отпустил камеру: через паузу она сама возвращается за спину
 	if Input.CameraHeld() or dragX ~= 0 or dragY ~= 0 then
@@ -1103,13 +1233,14 @@ local function updateCamera(dt: number, frame: CFrame)
 
 	local distance = (C.Distance + state.v * C.DistancePerSpeed) * camZoom
 	local side = Vector3.new(-direction.Z, 0, direction.X)
-	local eye = position - direction * (distance * math.cos(camPitch)) - side * (lean * C.SideSway)
-	local eyeY = position.Y + C.Height * camZoom + distance * math.sin(camPitch)
-	-- Пока камера почти сзади, она не опускается ниже снега позади
+	local eye = position - direction * distance - side * (lean * C.SideSway)
+	local eyeY = position.Y + (C.Height + camHeight) * camZoom
+	-- Пока камера почти сзади и не поднята высоко, она не проваливается под снег позади
 	local clearance = 1 - math.clamp(turned / C.OrbitClearance, 0, 1)
 	if clearance > 0 then
 		local behind = Track.At(track, state.s - distance)
-		local lifted = math.max(eyeY, behind.Y + C.MinClearance)
+		local minEye = behind.Y + (if camHeight < 0 then 1.8 else C.MinClearance)
+		local lifted = math.max(eyeY, minEye)
 		eyeY += (lifted - eyeY) * clearance
 	end
 	eye = Vector3.new(eye.X, eyeY, eye.Z)
@@ -1121,10 +1252,11 @@ local function updateCamera(dt: number, frame: CFrame)
 		position.Y + C.FocusHeight + slopePitchY + state.air * C.AirFocus,
 		focus.Z
 	)
-	-- Чем дальше камера от положения «сзади», тем больше она смотрит на сами санки
+	-- Чем дальше камера от положения «сзади» или выше поднята, тем больше она смотрит на сами санки
+	local heightBlend = math.clamp(camHeight / 14, 0, 0.55)
 	focus = focus:Lerp(
 		position + Vector3.new(0, C.FocusHeight, 0),
-		math.clamp(turned / C.OrbitFocusBlend, 0, 1)
+		math.max(math.clamp(turned / C.OrbitFocusBlend, 0, 1), heightBlend)
 	)
 
 	local boostFovBonus = if boostTime > 0 then 15 else 0
@@ -1162,7 +1294,15 @@ local function onFrame(frameTime: number)
 		steer, brake = SledBot.Control(track, state, params)
 	end
 
-	if mode == "countdown" then
+	if mode == "loading" then
+		local mountain = Workspace:FindFirstChild("Mountain")
+		local ready = mountain ~= nil and mountain:GetAttribute("TrackReady") == true
+		if ready or modeTime > 5.0 then
+			Hud.SetLoading(false)
+			updateRoadYetis()
+			setMode("countdown")
+		end
+	elseif mode == "countdown" then
 		local lit = math.floor(modeTime / R.CountdownStep)
 		Hud.Countdown(math.min(lit, R.CountdownLights))
 		if lit > R.CountdownLights then
@@ -1225,6 +1365,7 @@ end
 
 SledView.Create()
 Hud.Create()
+Hud.SetLoading(true)
 PowerupEffects.Init(track)
 initRivals()
 Hud.Tuning(params :: any, applyPreset, restart)
@@ -1239,7 +1380,7 @@ UserInputService.InputBegan:Connect(function(input, processed)
 	elseif input.KeyCode == Enum.KeyCode.B then
 		autopilot = not autopilot
 	elseif input.KeyCode == Enum.KeyCode.C then
-		camYaw, camPitch, camZoom = 0, C.OrbitPitchDefault, 1 -- камера обратно за спину
+		camYaw, camHeight, camZoom = 0, 0, 1 -- камера обратно за спину и на стандартную высоту
 	elseif
 		input.KeyCode == Enum.KeyCode.E
 		or input.KeyCode == Enum.KeyCode.Space
