@@ -377,6 +377,21 @@ local function buildTrees(
 						true
 					)
 				end
+				local trunk = Instance.new("Part")
+				trunk.Name = "TreeTrunkCollider"
+				trunk.Shape = Enum.PartType.Cylinder
+				trunk.Size = Vector3.new(14 * scale, 3.2 * scale, 3.2 * scale)
+				trunk.CFrame = at
+					* CFrame.new(0, 7 * scale - S.TreeSink, 0)
+					* CFrame.Angles(0, 0, math.pi / 2)
+				trunk.Transparency = 1
+				trunk.Anchored = true
+				trunk.CanCollide = true
+				trunk.CanTouch = true
+				trunk.CanQuery = true
+				trunk:SetAttribute("SledObstacle", "Tree")
+				trunk.Parent = parent
+
 				local d = shoulder.side * (trackW / 2 + out)
 				local radius = SledConfig.Obstacles.Tree.radius * scale
 				table.insert(propEntries, string.format("%.1f,%.1f,%.1f,T", shoulder.s, d, radius))
@@ -396,10 +411,14 @@ local function buildTrees(
 					)
 					boulder.CFrame = at * CFrame.new(0, boulder.Size.Y / 2 - S.RockSink * scale, 0)
 					boulder.CastShadow = S.RockShadows
+					boulder.CanCollide = true
+					boulder.CanTouch = true
+					boulder.CanQuery = true
+					boulder:SetAttribute("SledObstacle", "Rock")
 					boulder.Parent = parent
 				else
 					local size = rockAsset.width * scale
-					block(
+					local boulderPart = block(
 						parent,
 						Vector3.new(size, size * S.RockBlockHeight, size * S.RockBlockDepth),
 						at * CFrame.new(0, size * S.RockBlockHeight / 2 - S.RockSink * scale, 0),
@@ -407,6 +426,10 @@ local function buildTrees(
 						Enum.Material.Slate,
 						true
 					)
+					boulderPart.CanCollide = true
+					boulderPart.CanTouch = true
+					boulderPart.CanQuery = true
+					boulderPart:SetAttribute("SledObstacle", "Rock")
 				end
 				local d = shoulder.side * (trackW / 2 + out)
 				local radius = SledConfig.Obstacles.Rock.radius * scale

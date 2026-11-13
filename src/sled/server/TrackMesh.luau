@@ -226,8 +226,8 @@ function TrackMesh.Build(
 			previous = ring
 		end
 
-		local ok = MeshBuilder.Finish(snow, holder, "Snow" .. chunk, Enum.Material.Snow)
-		ok = MeshBuilder.Finish(rock, holder, "Rock" .. chunk, Enum.Material.Slate) and ok
+		local ok = MeshBuilder.Finish(snow, holder, "Snow" .. chunk, Enum.Material.Snow, true)
+		ok = MeshBuilder.Finish(rock, holder, "Rock" .. chunk, Enum.Material.Slate, true) and ok
 		if not ok then
 			warn("TrackMesh: гора будет из блоков")
 			holder:Destroy()

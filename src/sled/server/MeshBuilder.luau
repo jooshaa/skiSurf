@@ -83,10 +83,18 @@ end
 
 -- Превратить накопленное в деталь, которую получат клиенты. nil = движок не дал построить сетку.
 -- Деталь возвращается без родителя, стоящей в центре своей сетки.
-function MeshBuilder.Create(builder: Builder, name: string, material: Enum.Material): MeshPart?
+function MeshBuilder.Create(
+	builder: Builder,
+	name: string,
+	material: Enum.Material,
+	collidable: boolean?
+): MeshPart?
 	-- Точки сетки считаем от центра куска: деталь встаёт в этот центр
 	local centre = (builder.low + builder.high) / 2
 	local mesh: EditableMesh? = nil
+	local fidelity = if collidable
+		then Enum.CollisionFidelity.PreciseConvexDecomposition
+		else Enum.CollisionFidelity.Box
 	local ok, part = pcall(function(): MeshPart?
 		local created = AssetService:CreateEditableMesh()
 		if not created then
@@ -115,7 +123,7 @@ function MeshBuilder.Create(builder: Builder, name: string, material: Enum.Mater
 			error("CreateDataModelContentAsync: " .. tostring(result))
 		end
 		return (AssetService :: any):CreateMeshPartAsync(content, {
-			CollisionFidelity = Enum.CollisionFidelity.Box,
+			CollisionFidelity = fidelity,
 			RenderFidelity = Enum.RenderFidelity.Precise,
 		})
 	end)
@@ -134,9 +142,12 @@ function MeshBuilder.Create(builder: Builder, name: string, material: Enum.Mater
 	part.Material = material
 	part.Color = Color3.new(1, 1, 1)
 	part.Anchored = true
-	part.CanCollide = false
-	part.CanTouch = false
-	part.CanQuery = false
+	part.CanCollide = collidable == true
+	part.CanTouch = collidable == true
+	part.CanQuery = collidable == true
+	if collidable then
+		part.CustomPhysicalProperties = PhysicalProperties.new(0.7, 0.04, 0.1, 100, 100)
+	end
 	part.CastShadow = false
 	part.CFrame = CFrame.new(centre)
 	return part
@@ -147,12 +158,13 @@ function MeshBuilder.Finish(
 	builder: Builder,
 	parent: Instance,
 	name: string,
-	material: Enum.Material
+	material: Enum.Material,
+	collidable: boolean?
 ): boolean
 	if #builder.faces == 0 then
 		return true
 	end
-	local part = MeshBuilder.Create(builder, name, material)
+	local part = MeshBuilder.Create(builder, name, material, collidable)
 	if not part then
 		return false
 	end

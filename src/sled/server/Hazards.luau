@@ -192,6 +192,8 @@ local function buildObstacles(parent: Instance, track: Track.Data)
 			local shape = Instance.new("SpecialMesh")
 			shape.MeshType = Enum.MeshType.Sphere
 			shape.Parent = mound
+			mound.CanTouch = true
+			mound:SetAttribute("SledObstacle", "Drift")
 		elseif obstacle.kind == "Lava" then
 			local spec = O.Lava
 			local flat = frame * CFrame.Angles(0, 0, math.pi / 2) -- ось цилиндра вверх от снега
@@ -204,6 +206,8 @@ local function buildObstacles(parent: Instance, track: Track.Data)
 				false
 			)
 			pool.Shape = Enum.PartType.Cylinder
+			pool.CanTouch = true
+			pool:SetAttribute("SledObstacle", "Lava")
 			local rim = block(
 				parent,
 				Vector3.new(
@@ -236,6 +240,10 @@ local function buildObstacles(parent: Instance, track: Track.Data)
 			end
 			figure.Name = tostring(index)
 			figure.CastShadow = true
+			figure.CanCollide = true
+			figure.CanTouch = true
+			figure.CanQuery = true
+			figure:SetAttribute("SledObstacle", "Yeti")
 			-- Лицом вверх по трассе, к едущему
 			figure.CFrame = Hazards.YetiFrame(track, obstacle, 0)
 				* CFrame.new(0, figure.Size.Y / 2, 0)

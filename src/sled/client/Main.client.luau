@@ -19,6 +19,7 @@ local Hud = require(script.Parent:WaitForChild("Hud"))
 local Input = require(script.Parent:WaitForChild("Input"))
 local SledView = require(script.Parent:WaitForChild("SledView"))
 local PowerupEffects = require(script.Parent:WaitForChild("PowerupEffects"))
+local SledPhysics3D = require(script.Parent:WaitForChild("SledPhysics3D"))
 
 local R = SledConfig.Run
 local C = SledConfig.Camera
@@ -93,6 +94,9 @@ local rivals: { Rival } = {}
 
 local fallFrame = CFrame.new()
 local fallVelocity = Vector3.zero
+local phys3D: SledPhysics3D.Controller? = nil
+local pendingSteer = 0
+local pendingBrake = false
 
 local camDirection = Vector3.new(0, 0, -1)
 local camFov = C.FovBase
@@ -223,6 +227,9 @@ end
 -- Поставить санки на трассу; камера сразу встаёт за ними, а не доворачивает с прошлого места
 local function place(s: number, speed: number)
 	SledSim.Place(track, state, s, speed)
+	if phys3D then
+		SledPhysics3D.Place(phys3D, track, s, 0, speed)
+	end
 	local _, tangent = Track.At(track, s)
 	camDirection = Vector3.new(tangent.X, 0, tangent.Z).Unit
 	airTime = 0
@@ -239,13 +246,14 @@ local function createRivalModel(name: string, color: Color3, runnerColor: Color3
 
 	local rootPart = Instance.new("Part")
 	rootPart.Name = "Root"
-	rootPart.Size = Vector3.one
+	rootPart.Size = Vector3.new(3.2, 1.4, 5.8)
 	rootPart.Transparency = 1
 	rootPart.Anchored = true
-	rootPart.CanCollide = false
-	rootPart.CanTouch = false
-	rootPart.CanQuery = false
+	rootPart.CanCollide = true
+	rootPart.CanTouch = true
+	rootPart.CanQuery = true
 	rootPart.CastShadow = false
+	rootPart:SetAttribute("SledObstacle", "Rival")
 	rootPart.CFrame = CFrame.new()
 	rootPart.Parent = m
 	m.PrimaryPart = rootPart
@@ -624,6 +632,9 @@ local function usePlayerItem()
 	elseif item == "Boost" then
 		boostTime = P.Boost.Duration
 		state.v += P.Boost.ExtraSpeed
+		if phys3D then
+			phys3D.chassis.AssemblyLinearVelocity += phys3D.chassis.CFrame.LookVector * P.Boost.ExtraSpeed
+		end
 		if not boostVis then
 			boostVis = PowerupEffects.CreateBoostTurbines(Workspace)
 		end
@@ -782,8 +793,12 @@ local function applyPreset(index: number)
 	end
 end
 
--- Положение санок в мире по состоянию расчёта
+-- Положение санок в мире по состоянию 3D-физики (или 2D-расчёта как запасной вариант)
 local function sledFrame(): CFrame
+	if phys3D then
+		local wheeliePitch = if boostTime > 0 then 0.08 else 0
+		return SledPhysics3D.Pose(phys3D) * CFrame.Angles(wheeliePitch, 0, 0)
+	end
 	local surface = Track.Frame(track, state.s, state.d) + Vector3.new(0, state.air, 0)
 	local spinYaw = if spinOutTime > 0 then spinOutTime * 14 else 0
 	local wheeliePitch = if boostTime > 0 then 0.12 else 0
@@ -798,12 +813,16 @@ local function sledFrame(): CFrame
 end
 
 local function startFall()
-	fallFrame = sledFrame()
-	local surface = Track.Frame(track, state.s, state.d)
-	local direction =
-		surface:VectorToWorldSpace(Vector3.new(math.sin(state.slide), 0, -math.cos(state.slide)))
-	-- Реалистичная инерция срыва с края сугроба без рывков и мультяшных взрывов
-	fallVelocity = direction * state.v + Vector3.new(0, math.min(state.w * R.FallLift, -6), 0)
+	if phys3D then
+		phys3D.falling = true
+	else
+		fallFrame = sledFrame()
+		local surface = Track.Frame(track, state.s, state.d)
+		local direction = surface:VectorToWorldSpace(
+			Vector3.new(math.sin(state.slide), 0, -math.cos(state.slide))
+		)
+		fallVelocity = direction * state.v + Vector3.new(0, math.min(state.w * R.FallLift, -6), 0)
+	end
 	SledView.Land(0.85)
 	setMode("fall")
 end
@@ -844,35 +863,46 @@ local function updateRun(dt: number, steer: number, brake: boolean)
 	-- Нитро-ускорение с 3D-турбинами
 	if boostTime > 0 then
 		boostTime -= dt
-		state.v = math.max(state.v, 138)
 		if boostTime <= 0 and boostVis then
 			boostVis.model:Destroy()
 			boostVis = nil
 		end
 	end
 
-	local hitsBefore = state.hits
-	simulate(dt, steer, brake)
-	runTime += dt
+	pendingSteer = steer
+	pendingBrake = brake
 
-	-- Реакция камеры и снежных брызг зависит от типа препятствия и силы удара
-	if state.hits > hitsBefore then
-		local kind = state.lastHitKind
-		local impact = state.lastHitImpact
-		if kind == "Tree" or kind == "Rock" then
-			camKick = math.max(camKick, C.HitKick * (1.2 + 1.1 * impact))
-			SledView.Land(math.clamp(0.6 + 0.45 * impact, 0.6, 1.0))
-		elseif kind == "Yeti" then
-			camKick = math.max(camKick, C.HitKick * (1.4 + 0.5 * impact))
-			SledView.Land(0.9)
-		elseif kind == "Drift" then
-			camKick = math.max(camKick, C.HitKick * 0.65)
-			SledView.Land(1.0)
-		else
-			camKick = math.max(camKick, C.HitKick * 1.25)
+	if phys3D then
+		phys3D.shielded = shieldActive
+		phys3D.boosted = boostTime > 0
+		phys3D.stunned = spinOutTime > 0
+		state.s = phys3D.s
+		state.d = phys3D.d
+		state.v = phys3D.speed
+		state.air = phys3D.airHeight
+		state.airborne = phys3D.airborne
+		state.time += dt
+		-- Проверка вылета за 100% сугроба или падения ниже трассы в пропасть
+		local trackPos, _, _, width = Track.At(track, state.s)
+		local over = math.abs(state.d) - width / 2
+		local fullShoulder = if over > 0 and Track.CaveDepth(track, state.s) <= 0
+			then Track.ShoulderProfile(track, state.s, state.d)
+			else 0
+		if
+			(over >= fullShoulder and fullShoulder > 0 and phys3D.airTime > 0.35)
+			or phys3D.chassis.Position.Y < trackPos.Y - 35
+		then
+			state.fell = true
+		end
+	else
+		local hitsBefore = state.hits
+		simulate(dt, steer, brake)
+		if state.hits > hitsBefore then
+			camKick = math.max(camKick, C.HitKick)
 			SledView.Land(F.HitPuff)
 		end
 	end
+	runTime += dt
 
 	-- Синхронизируем 3D-модели шагающих по трассе йети с физическим расчётом SledSim (Obstacles.D)
 	updateRoadYetis()
@@ -1048,7 +1078,7 @@ local function updateRun(dt: number, steer: number, brake: boolean)
 	end
 	local playerBumped = false
 	for i, r in rivals do
-		if SledSim.CollideSleds(track, state, r.state, dt) then
+		if not phys3D and SledSim.CollideSleds(track, state, r.state, dt) then
 			playerBumped = true
 		end
 		for j = i + 1, #rivals do
@@ -1072,14 +1102,27 @@ local function updateRun(dt: number, steer: number, brake: boolean)
 				if shieldActive then
 					-- Щит на время: отражает удар без потери щита и даёт импульс скорости!
 					state.v += 18
-					PowerupEffects.SnowExplosion(Track.Frame(track, state.s, state.d).Position)
+					if phys3D then
+						phys3D.chassis.AssemblyLinearVelocity += phys3D.chassis.CFrame.LookVector * 18
+					end
+					PowerupEffects.SnowExplosion(currentPlayerFrame.Position)
 				else
 					spinOutTime = P.Rocket.StunDuration
-					state.v *= P.Rocket.SpeedFactor
-					state.yaw = P.Rocket.SpinSpeed
-					state.air = math.max(state.air, 4.5)
-					state.w = 22
-					state.airborne = true
+					if phys3D then
+						phys3D.chassis.AssemblyLinearVelocity *= P.Rocket.SpeedFactor
+						phys3D.chassis.AssemblyLinearVelocity += Vector3.new(0, 22, 0)
+						phys3D.chassis.AssemblyAngularVelocity += Vector3.new(
+							0,
+							P.Rocket.SpinSpeed,
+							0
+						)
+					else
+						state.v *= P.Rocket.SpeedFactor
+						state.yaw = P.Rocket.SpinSpeed
+						state.air = math.max(state.air, 4.5)
+						state.w = 22
+						state.airborne = true
+					end
 					camKick = C.HitKick * 2.0
 					SledView.Land(1.0)
 				end
@@ -1147,15 +1190,15 @@ local function updateRun(dt: number, steer: number, brake: boolean)
 end
 
 local function updateFall(dt: number)
-	local sideSign = if state.d >= 0 then 1 else -1
-	local _, _, right = Track.At(track, state.s)
-	local flatOutward = Vector3.new(right.X, 0, right.Z).Unit * sideSign
-	-- Баллистическое падение с естественным уводом вдоль 62° скального склона, чтобы санки не проваливались внутрь скалы
-	fallVelocity += flatOutward * (14 * dt) - Vector3.new(0, params.AirGravity * 1.15 * dt, 0)
-	local nextPos = fallFrame.Position + fallVelocity * dt
-	-- В реальности санки при падении не крутят сальто, а плавно наклоняют нос вниз по траектории падения с лёгким креном в сторону обрыва
-	fallFrame = (fallFrame - fallFrame.Position + nextPos)
-		* CFrame.Angles(-R.FallSpin * dt, 0, -sideSign * R.FallRoll * dt)
+	if not phys3D then
+		local sideSign = if state.d >= 0 then 1 else -1
+		local _, _, right = Track.At(track, state.s)
+		local flatOutward = Vector3.new(right.X, 0, right.Z).Unit * sideSign
+		fallVelocity += flatOutward * (14 * dt) - Vector3.new(0, params.AirGravity * 1.15 * dt, 0)
+		local nextPos = fallFrame.Position + fallVelocity * dt
+		fallFrame = (fallFrame - fallFrame.Position + nextPos)
+			* CFrame.Angles(-R.FallSpin * dt, 0, -sideSign * R.FallRoll * dt)
+	end
 	runTime += dt
 	if modeTime >= R.FallTime then
 		place(Track.CheckpointBefore(track, state.s), R.RespawnSpeed)
@@ -1202,11 +1245,11 @@ local function updateCamera(dt: number, frame: CFrame)
 		return
 	end
 
-	-- Вращение камеры как в Beach Buggy Racing: камера следует за реальным курсом и заносом санок,
-	-- а не уводит взгляд вбок заранее на дальнюю точку дуги
+	-- Вращение камеры как в Beach Buggy Racing: камера следует за реальным 3D-курсом санок
 	local surfaceFrame = Track.Frame(track, state.s, state.d)
-	local sledYaw = -(state.slide * 0.65 + state.heading * 0.35)
-	local sledForward = (surfaceFrame * CFrame.Angles(0, sledYaw, 0)).LookVector
+	local sledForward = if phys3D
+		then frame.LookVector
+		else (surfaceFrame * CFrame.Angles(0, -(state.slide * 0.65 + state.heading * 0.35), 0)).LookVector
 	local wanted = Vector3.new(sledForward.X, 0, sledForward.Z)
 	if wanted.Magnitude > 0.01 then
 		local blended = camDirection:Lerp(wanted.Unit, 1 - math.exp(-C.TurnRate * dt))
@@ -1245,7 +1288,7 @@ local function updateCamera(dt: number, frame: CFrame)
 	end
 	eye = Vector3.new(eye.X, eyeY, eye.Z)
 
-	local slopePitchY = surfaceFrame.LookVector.Y * C.FocusAhead * 0.55
+	local slopePitchY = sledForward.Y * C.FocusAhead * 0.9
 	local focus = position + camDirection * C.FocusAhead
 	focus = Vector3.new(
 		focus.X,
@@ -1300,6 +1343,9 @@ local function onFrame(frameTime: number)
 		if ready or modeTime > 5.0 then
 			Hud.SetLoading(false)
 			updateRoadYetis()
+			if phys3D then
+				SledPhysics3D.Place(phys3D, track, track.startS, 0, 0)
+			end
 			setMode("countdown")
 		end
 	elseif mode == "countdown" then
@@ -1317,8 +1363,15 @@ local function onFrame(frameTime: number)
 		updateFinish(dt)
 	end
 
+	if phys3D then
+		SledPhysics3D.SetFrozen(
+			phys3D,
+			mode == "loading" or mode == "countdown" or mode == "finish"
+		)
+	end
+
 	lean += (steer - lean) * (1 - math.exp(-S.LeanRate * dt))
-	local frame = if mode == "fall" then fallFrame else sledFrame()
+	local frame = if mode == "fall" and not phys3D then fallFrame else sledFrame()
 	SledView.SetPose(frame)
 	if lastPosition and dt > 0 then
 		velocity = (frame.Position - lastPosition) / dt
@@ -1342,15 +1395,10 @@ local function onFrame(frameTime: number)
 	updateCamera(dt, frame)
 	local sliding = (mode == "run" or mode == "finish") and not state.airborne
 	local hidden = blink > 0 and math.floor(blink * R.BlinkRate) % 2 == 0
-	SledView.Update(
-		state.v,
-		state.heading - state.slide,
-		steer,
-		brake or state.bank,
-		sliding,
-		velocity,
-		hidden
-	)
+	local driftAngle = if phys3D
+		then math.atan2(phys3D.lateralSpeed, math.max(10, phys3D.forwardSpeed))
+		else state.heading - state.slide
+	SledView.Update(state.v, driftAngle, steer, brake or state.bank, sliding, velocity, hidden)
 	-- Метель на своих участках трассы нарастает и стихает плавно
 	local share = state.s / track.finishS
 	local wanted = 0
@@ -1368,6 +1416,26 @@ Hud.Create()
 Hud.SetLoading(true)
 PowerupEffects.Init(track)
 initRivals()
+
+local sledVisual = Workspace:FindFirstChild("Sled")
+local excludeList: { Instance } = {}
+if sledVisual then
+	table.insert(excludeList, sledVisual)
+end
+phys3D = SledPhysics3D.Create(track, track.startS, excludeList, function(kind, severity)
+	if kind == "Drift" then
+		camKick = math.max(camKick, C.HitKick * 0.65)
+		SledView.Land(1.0)
+	elseif kind == "Lava" then
+		camKick = math.max(camKick, C.HitKick * 1.2)
+		SledView.Land(0.6)
+	else
+		camKick = math.max(camKick, C.HitKick * (1.0 + 1.1 * severity))
+		SledView.Land(math.clamp(0.55 + 0.45 * severity, 0.55, 1.0))
+	end
+end)
+SledPhysics3D.SetFrozen(phys3D :: SledPhysics3D.Controller, true)
+
 Hud.Tuning(params :: any, applyPreset, restart)
 Hud.Result(nil, nil)
 
@@ -1392,11 +1460,23 @@ end)
 
 player.CharacterAdded:Connect(function(character)
 	task.spawn(disableDefaultControls)
+	if phys3D then
+		SledPhysics3D.AddExclude(phys3D, character)
+	end
 	onCharacter(character)
 end)
 task.spawn(disableDefaultControls)
 if player.Character then
+	if phys3D then
+		SledPhysics3D.AddExclude(phys3D, player.Character)
+	end
 	task.spawn(onCharacter, player.Character)
 end
+
+RunService.PreSimulation:Connect(function(dt: number)
+	if phys3D and (mode == "run" or mode == "fall") then
+		SledPhysics3D.Step(phys3D, track, math.min(dt, R.MaxFrameTime), pendingSteer, pendingBrake)
+	end
+end)
 
 RunService:BindToRenderStep("Sled", Enum.RenderPriority.Camera.Value + 1, onFrame)
