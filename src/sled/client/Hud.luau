@@ -425,4 +425,22 @@ function Hud.Tuning(
 	end)
 end
 
+function Hud.SetRespawn(onRespawn: () -> ())
+	local btn = Instance.new("TextButton")
+	btn.Name = "RespawnButton"
+	btn.Size = UDim2.fromOffset(40, 40)
+	btn.Position = UDim2.fromOffset(58, 48)
+	btn.BackgroundColor3 = DARK
+	btn.BackgroundTransparency = 0.25
+	btn.BorderSizePixel = 0
+	btn.Font = Enum.Font.GothamBold
+	btn.TextSize = 20
+	btn.TextColor3 = WHITE
+	btn.Text = "↺"
+	btn.AutoButtonColor = true
+	btn.Parent = gui
+	round(btn, 0.2)
+	btn.Activated:Connect(onRespawn)
+end
+
 return Hud

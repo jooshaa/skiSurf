@@ -59,6 +59,7 @@ local boostVis: PowerupEffects.BoostVisual? = nil
 local boostTime = 0
 local spinOutTime = 0
 local bumpCooldown = 0
+local stuckTime = 0
 local playerRank = 1
 
 -- Загружаем точные координаты деревьев и валунов с сугробов обочины от сервера
@@ -709,6 +710,21 @@ local function updateRoadYetis()
 			if math.abs(obstacle.s - state.s) < 650 or state.time == 0 then
 				local figure = roadYetisFolder:FindFirstChild(tostring(index))
 				if figure and figure:IsA("BasePart") then
+					local knockedUntil = figure:GetAttribute("KnockedUntil")
+					if
+						state.time > 0
+						and typeof(knockedUntil) == "number"
+						and os.clock() < knockedUntil
+					then
+						continue
+					end
+					if not figure.Anchored then
+						figure.Anchored = true
+						figure.CanCollide = false
+						figure.AssemblyLinearVelocity = Vector3.zero
+						figure.AssemblyAngularVelocity = Vector3.zero
+						figure:SetAttribute("KnockedUntil", nil)
+					end
 					local d = Obstacles.D(obstacle, state.time)
 					local frame = Track.Frame(track, obstacle.s, d)
 					local waddle = math.sin(state.time * O.Yeti.waddleRate + obstacle.phase)
@@ -726,11 +742,25 @@ local function updateRoadYetis()
 	end
 end
 
+local function respawnAtCheckpoint()
+	if mode ~= "run" and mode ~= "fall" then
+		return
+	end
+	stuckTime = 0
+	spinOutTime = 0
+	place(Track.CheckpointBefore(track, state.s), R.RespawnSpeed)
+	blink = R.RespawnBlink
+	if mode == "fall" then
+		setMode("run")
+	end
+end
+
 local function restart()
 	SledSim.Reset(track, state, track.startS)
 	place(track.startS, 0)
 	camYaw = 0 -- высоту и зум игрок выбрал сам: их не сбрасываем
 	runTime = 0
+	stuckTime = 0
 	blink = 0
 	updateRoadYetis()
 
@@ -897,6 +927,16 @@ local function updateRun(dt: number, steer: number, brake: boolean)
 		state.air = phys3D.airHeight
 		state.airborne = phys3D.airborne
 		state.time += dt
+		-- Авто-возрождение на чекпоинте, если санки застряли дольше 4.5 секунд
+		if state.v < 10 and runTime > 2.0 and not brake then
+			stuckTime += dt
+			if stuckTime >= 4.5 then
+				respawnAtCheckpoint()
+				return
+			end
+		else
+			stuckTime = 0
+		end
 		-- Проверка вылета за 100% сугроба или падения ниже трассы в пропасть
 		local trackPos, _, _, width = Track.At(track, state.s)
 		local over = math.abs(state.d) - width / 2
@@ -1482,6 +1522,7 @@ Hud.Tuning(
 	SledConfig.Tunable3D,
 	SledConfig.Presets3D
 )
+Hud.SetRespawn(respawnAtCheckpoint)
 Hud.Result(nil, nil)
 
 UserInputService.InputBegan:Connect(function(input, processed)

@@ -174,7 +174,8 @@ function SledPhysics3D.Create(
 		if obs == "Drift" then
 			ctrl.lastHitCooldown = O.HitRegrip
 			if not ctrl.shielded then
-				chassis.AssemblyLinearVelocity *= O.Drift.keep
+				chassis.AssemblyLinearVelocity = chassis.AssemblyLinearVelocity * O.Drift.keep
+					+ Vector3.yAxis * 12
 				if ctrl.onImpact then
 					ctrl.onImpact("Drift", 0.55)
 				end
@@ -188,7 +189,30 @@ function SledPhysics3D.Create(
 					ctrl.onImpact("Lava", 0.75)
 				end
 			end
-		elseif obs == "Tree" or obs == "Rock" or obs == "Yeti" then
+		elseif obs == "Yeti" then
+			ctrl.lastHitCooldown = 0.4
+			local sledVel = chassis.AssemblyLinearVelocity
+			-- Отбрасываем тяжёлого йети (500–700 кг): он отлетает и кувыркается, а санки теряют часть хода
+			hit.Anchored = false
+			hit.CanCollide = false
+			hit:SetAttribute("KnockedUntil", os.clock() + 4.0)
+			local sidePush = (hit.Position - chassis.Position)
+			local flatPush = Vector3.new(sidePush.X, 0, sidePush.Z)
+			local pushDir = if flatPush.Magnitude > 0.1
+				then flatPush.Unit
+				else chassis.CFrame.LookVector
+			hit.AssemblyLinearVelocity = sledVel * 0.42 + pushDir * 24 + Vector3.yAxis * 26
+			hit.AssemblyAngularVelocity = Vector3.new(
+				(math.random() - 0.5) * 10,
+				(math.random() - 0.5) * 12,
+				(math.random() - 0.5) * 10
+			)
+			chassis.AssemblyLinearVelocity = sledVel * (if ctrl.shielded then 0.88 else 0.56)
+			if ctrl.onImpact then
+				local sev = if ctrl.shielded then 0.3 else math.clamp(ctrl.speed / 100, 0.45, 1.0)
+				ctrl.onImpact("Yeti", sev)
+			end
+		elseif obs == "Tree" or obs == "Rock" then
 			ctrl.lastHitCooldown = 0.35
 			if ctrl.shielded then
 				-- Щит пробивает препятствие с лёгким толчком и без потери хода

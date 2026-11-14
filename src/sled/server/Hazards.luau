@@ -187,7 +187,7 @@ local function buildObstacles(parent: Instance, track: Track.Data)
 				frame,
 				spec.color,
 				Enum.Material.Snow,
-				true
+				false
 			)
 			local shape = Instance.new("SpecialMesh")
 			shape.MeshType = Enum.MeshType.Sphere
@@ -240,7 +240,7 @@ local function buildObstacles(parent: Instance, track: Track.Data)
 			end
 			figure.Name = tostring(index)
 			figure.CastShadow = true
-			figure.CanCollide = true
+			figure.CanCollide = false
 			figure.CanTouch = true
 			figure.CanQuery = true
 			figure:SetAttribute("SledObstacle", "Yeti")
