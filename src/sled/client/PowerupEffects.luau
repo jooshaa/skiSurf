@@ -88,9 +88,21 @@ local boxVisuals: {
 } =
 	{}
 
+type IceMineEntry = {
+	id: number,
+	ownerId: string,
+	s: number,
+	d: number,
+	pos: Vector3,
+	age: number,
+	maxDuration: number,
+	model: Model,
+}
+
 local activeRockets: { RocketProjectile } = {}
 local activeFireworks: { FireworkProjectile } = {}
 local activeSnowballs: { SnowballProjectile } = {}
+local activeMines: { IceMineEntry } = {}
 local nextProjId = 1
 
 local lockOnModel: Model? = nil
@@ -1049,6 +1061,134 @@ end
 -- ============================================================================
 -- 5. 3D-ПРЕДМЕТ В РУКАХ НА САНКАХ ДО ВЫСТРЕЛА + 3D-ПРИЦЕЛ НАВЕДЕНИЯ (Target Lock-On)
 -- ============================================================================
+local function buildIceMineModel(m: Model, frame: CFrame, scale: number)
+	local base = makePart(
+		m,
+		"MineBase",
+		Vector3.new(3.0, 0.7, 3.0) * scale,
+		frame,
+		Color3.fromRGB(28, 38, 56),
+		Enum.Material.Metal
+	)
+	base.Shape = Enum.PartType.Cylinder
+	base.CFrame = frame * CFrame.Angles(0, 0, math.pi / 2)
+	local core = makePart(
+		m,
+		"MineCore",
+		Vector3.new(1.5, 1.5, 1.5) * scale,
+		frame * CFrame.new(0, 0.7 * scale, 0),
+		Color3.fromRGB(90, 235, 255),
+		Enum.Material.Neon
+	)
+	core.Shape = Enum.PartType.Ball
+	for i = 1, 6 do
+		local ang = (i / 6) * math.pi * 2
+		local spike = makePart(
+			m,
+			"Spike" .. i,
+			Vector3.new(0.42, 1.4, 0.42) * scale,
+			frame
+				* CFrame.new(0, 0.5 * scale, 0)
+				* CFrame.Angles(0, ang, math.rad(42))
+				* CFrame.new(0, 0.9 * scale, 0),
+			Color3.fromRGB(165, 245, 255),
+			Enum.Material.Glass
+		)
+		spike.Transparency = 0.15
+	end
+	m.PrimaryPart = core
+end
+
+local function buildFreezeWaveModel(m: Model, frame: CFrame, scale: number)
+	local orb = makePart(
+		m,
+		"CryoOrb",
+		Vector3.new(1.8, 1.8, 1.8) * scale,
+		frame,
+		Color3.fromRGB(110, 245, 255),
+		Enum.Material.Neon
+	)
+	orb.Shape = Enum.PartType.Ball
+	local ringA = makePart(
+		m,
+		"RingA",
+		Vector3.new(3.2, 0.25, 3.2) * scale,
+		frame * CFrame.Angles(math.rad(35), 0, math.rad(25)),
+		Color3.fromRGB(45, 185, 255),
+		Enum.Material.Neon
+	)
+	ringA.Shape = Enum.PartType.Cylinder
+	ringA.CFrame = frame * CFrame.Angles(math.rad(35), 0, math.pi / 2 + math.rad(25))
+	local ringB = makePart(
+		m,
+		"RingB",
+		Vector3.new(3.2, 0.25, 3.2) * scale,
+		frame * CFrame.Angles(-math.rad(35), 0, -math.rad(25)),
+		Color3.fromRGB(205, 250, 255),
+		Enum.Material.Neon
+	)
+	ringB.Shape = Enum.PartType.Cylinder
+	ringB.CFrame = frame * CFrame.Angles(-math.rad(35), 0, math.pi / 2 - math.rad(25))
+	m.PrimaryPart = orb
+end
+
+local function buildMagnetModel(m: Model, frame: CFrame, scale: number)
+	local arch = makePart(
+		m,
+		"Arch",
+		Vector3.new(2.2, 0.65, 0.65) * scale,
+		frame * CFrame.new(0, 1.1 * scale, 0),
+		Color3.fromRGB(220, 45, 55),
+		Enum.Material.Metal
+	)
+	for _, side in { -1, 1 } do
+		local armColor = if side < 0
+			then Color3.fromRGB(220, 45, 55)
+			else Color3.fromRGB(45, 130, 235)
+		makePart(
+			m,
+			"Arm" .. side,
+			Vector3.new(0.65, 1.7, 0.65) * scale,
+			frame * CFrame.new(side * 0.8 * scale, 0.25 * scale, 0),
+			armColor,
+			Enum.Material.Metal
+		)
+		makePart(
+			m,
+			"Tip" .. side,
+			Vector3.new(0.7, 0.45, 0.7) * scale,
+			frame * CFrame.new(side * 0.8 * scale, -0.75 * scale, 0),
+			Color3.fromRGB(235, 240, 250),
+			Enum.Material.Neon
+		)
+	end
+	m.PrimaryPart = arch
+end
+
+local function buildShieldHeldModel(m: Model, frame: CFrame, scale: number)
+	local core = makePart(
+		m,
+		"HeldShieldCore",
+		Vector3.new(1.5, 2.3, 1.5) * scale,
+		frame,
+		Color3.fromRGB(70, 235, 255),
+		Enum.Material.Neon
+	)
+	core.Transparency = 0.15
+	for i = 1, 2 do
+		local ring = makePart(
+			m,
+			"ShieldRing" .. i,
+			Vector3.new(0.22, 2.8, 2.8) * scale,
+			frame * CFrame.Angles(0, i * math.pi / 2, math.rad(35)),
+			Color3.fromRGB(190, 250, 255),
+			Enum.Material.Neon
+		)
+		ring.Shape = Enum.PartType.Cylinder
+	end
+	m.PrimaryPart = core
+end
+
 function PowerupEffects.UpdateHeldItem(
 	kind: string?,
 	isRoulette: boolean,
@@ -1067,31 +1207,29 @@ function PowerupEffects.UpdateHeldItem(
 			local m = Instance.new("Model")
 			m.Name = "HeldItem_" .. effectiveKind
 			if effectiveKind == "Rocket" then
-				local cone = PowerupEffects.BuildRocketModel(m, sledCf, 0.78)
+				local cone = PowerupEffects.BuildRocketModel(m, sledCf, 0.88)
 				cone.Transparency = 1
 				local core = m:FindFirstChild("FlameCore") :: BasePart?
 				if core then
 					core.Transparency = 1
 				end
 			elseif effectiveKind == "Fireworks" then
-				PowerupEffects.BuildFireworkModel(m, sledCf, 1, 0.9)
+				PowerupEffects.BuildFireworkModel(m, sledCf, 1, 0.95)
 			elseif effectiveKind == "Snowball" then
-				PowerupEffects.BuildSnowballModel(m, sledCf, 1.35)
+				PowerupEffects.BuildSnowballModel(m, sledCf, 1.4)
 			elseif effectiveKind == "Boost" then
 				local b = PowerupEffects.CreateBoostTurbines(m)
 				b.flameL.Transparency = 1
 				b.flameR.Transparency = 1
 				m.PrimaryPart = b.model.PrimaryPart
 			elseif effectiveKind == "Shield" then
-				local core = makePart(
-					m,
-					"HeldShieldCore",
-					Vector3.new(1.4, 2.2, 1.4),
-					sledCf,
-					Color3.fromRGB(70, 235, 255),
-					Enum.Material.Neon
-				)
-				m.PrimaryPart = core
+				buildShieldHeldModel(m, sledCf, 0.95)
+			elseif effectiveKind == "FreezeWave" then
+				buildFreezeWaveModel(m, sledCf, 0.95)
+			elseif effectiveKind == "IceMine" then
+				buildIceMineModel(m, sledCf, 0.95)
+			elseif effectiveKind == "Magnet" then
+				buildMagnetModel(m, sledCf, 1.05)
 			end
 			-- Пока предмет в запасе на санках (до выстрела), отключаем реактивные ленты и дым
 			for _, d in m:GetDescendants() do
@@ -1126,6 +1264,10 @@ function PowerupEffects.UpdateHeldItem(
 		elseif heldKind == "Shield" then
 			heldModel:PivotTo(
 				sledCf * CFrame.new(0, 8.2 + hover, 0) * CFrame.Angles(0.4, clock * 3.2, 0.4)
+			)
+		elseif heldKind == "FreezeWave" or heldKind == "IceMine" or heldKind == "Magnet" then
+			heldModel:PivotTo(
+				sledCf * CFrame.new(0, 8.2 + hover, 0) * CFrame.Angles(0, clock * 2.6, 0)
 			)
 		end
 	end
@@ -1220,6 +1362,7 @@ function PowerupEffects.Init(track: Track.Data)
 	table.clear(activeRockets)
 	table.clear(activeFireworks)
 	table.clear(activeSnowballs)
+	table.clear(activeMines)
 	table.clear(partPool)
 	heldModel = nil
 	heldKind = nil
@@ -1512,6 +1655,58 @@ function PowerupEffects.SpawnFireworks(
 		nextProjId += 1
 		table.insert(activeFireworks, proj)
 	end
+end
+
+-- Ледяная волна: расширяющееся 3D крио-кольцо вокруг санок
+function PowerupEffects.SpawnFreezeWave(origin: Vector3)
+	if not fxFolder then
+		return
+	end
+	local ring = Instance.new("Part")
+	basePart(ring)
+	ring.Shape = Enum.PartType.Cylinder
+	ring.Material = Enum.Material.Neon
+	ring.Color = Color3.fromRGB(115, 240, 255)
+	ring.Transparency = 0.2
+	ring.Size = Vector3.new(0.9, 6, 6)
+	ring.CFrame = CFrame.new(origin + Vector3.yAxis * 1.4) * CFrame.Angles(0, 0, math.pi / 2)
+	ring.Parent = fxFolder
+
+	local targetSize = Vector3.new(0.6, P.FreezeWave.Radius * 2, P.FreezeWave.Radius * 2)
+	local tw = TweenService:Create(
+		ring,
+		TweenInfo.new(0.45, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+		{ Size = targetSize, Transparency = 1 }
+	)
+	tw:Play()
+	task.delay(0.46, function()
+		ring:Destroy()
+	end)
+end
+
+-- Ледяная мина: 3D крио-ловушка, оставляемая позади санок на снегу
+function PowerupEffects.SpawnIceMine(track: Track.Data, s: number, d: number, ownerId: string?)
+	if not fxFolder then
+		return
+	end
+	local placeS = math.max(track.startS, s - P.IceMine.BehindOffset)
+	local frame = Track.Frame(track, placeS, d)
+	local model = Instance.new("Model")
+	model.Name = "IceMine_" .. nextProjId
+	buildIceMineModel(model, frame, 1.35)
+	model.Parent = fxFolder
+
+	table.insert(activeMines, {
+		id = nextProjId,
+		ownerId = ownerId or "player",
+		s = placeS,
+		d = d,
+		pos = frame.Position,
+		age = 0,
+		maxDuration = P.IceMine.Duration,
+		model = model,
+	})
+	nextProjId += 1
 end
 
 -- Вызов снегопада / шариковой атаки снегов: впереди по курсу с горы и обочин слева направо
@@ -1936,6 +2131,35 @@ function PowerupEffects.UpdateProjectiles(
 		if hit then
 			sb.model:Destroy()
 			table.remove(activeSnowballs, i)
+		end
+	end
+
+	-- 4. Ледяные мины на дороге: вращаются и подрывают наехавших соперников
+	for i = #activeMines, 1, -1 do
+		local mine = activeMines[i]
+		mine.age += dt
+		local frame = Track.Frame(track, mine.s, mine.d)
+		mine.model:PivotTo(frame * CFrame.Angles(0, mine.age * 3.0, 0))
+
+		local hit = false
+		if mine.age > 0.35 then
+			for _, racer in racers do
+				if
+					racer.id ~= mine.ownerId
+					and math.abs(racer.s - mine.s) < P.IceMine.HitRadius
+					and math.abs(racer.d - mine.d) < P.IceMine.HitRadius
+				then
+					hit = true
+					PowerupEffects.SnowExplosion(mine.pos)
+					racer.onHit()
+					break
+				end
+			end
+		end
+
+		if hit or mine.age >= mine.maxDuration then
+			mine.model:Destroy()
+			table.remove(activeMines, i)
 		end
 	end
 end

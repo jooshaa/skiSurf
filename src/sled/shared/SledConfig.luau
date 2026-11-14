@@ -857,6 +857,29 @@ SledConfig.Powerups = {
 	Shield = {
 		Duration = 7.5, -- время действия защитного щита от всех ударов и препятствий
 	},
+	FreezeWave = {
+		Radius = 48, -- радиус крио-волны вокруг санок
+		SlowFactor = 0.42,
+		Duration = 2.1,
+	},
+	IceMine = {
+		BehindOffset = 9, -- на сколько студов позади санок ставится ледяная ловушка
+		HitRadius = 7.5,
+		Duration = 18.0,
+		StunDuration = 1.5,
+		SpeedFactor = 0.25,
+	},
+	Magnet = {
+		Duration = 5.5, -- притягивает коробки издалека и тянет в слипстриме
+		MagnetRadius = 38,
+		SlipstreamAccel = 18,
+	},
+}
+
+SledConfig.Match = {
+	MaxRacers = 4, -- матч всегда на 4 участников (игроки + боты на пустые слоты)
+	LobbyWait = 6, -- секунд ожидания в лобби до автостарта (можно нажать Старт раньше)
+	ResultsPause = 5,
 }
 
 SledConfig.Rivals = {

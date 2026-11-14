@@ -253,6 +253,12 @@ function Hud.SetPowerup(kind: string?, isRoulette: boolean, onUse: (() -> ())?)
 			itemIcon.Text = "⚡"
 		elseif kind == "Shield" then
 			itemIcon.Text = "🛡️"
+		elseif kind == "FreezeWave" then
+			itemIcon.Text = "🌀"
+		elseif kind == "IceMine" then
+			itemIcon.Text = "💎"
+		elseif kind == "Magnet" then
+			itemIcon.Text = "🧲"
 		else
 			itemIcon.Text = "?"
 		end
@@ -441,6 +447,92 @@ function Hud.SetRespawn(onRespawn: () -> ())
 	btn.Parent = gui
 	round(btn, 0.2)
 	btn.Activated:Connect(onRespawn)
+end
+
+local lobbyPanel: Frame? = nil
+local lobbyRows: { TextLabel } = {}
+local lobbyTimerLabel: TextLabel? = nil
+local lobbyStartCallback: (() -> ())? = nil
+
+function Hud.SetLobby(
+	visible: boolean,
+	slots: { { name: string, isBot: boolean } }?,
+	countdownSec: number?,
+	onStartNow: (() -> ())?
+)
+	if onStartNow then
+		lobbyStartCallback = onStartNow
+	end
+	if not lobbyPanel then
+		local panel =
+			frame(gui, UDim2.fromOffset(340, 250), UDim2.new(0.5, -170, 0.5, -125), DARK, 0.18)
+		panel.Name = "LobbyPanel"
+		panel.ZIndex = 30
+		local title = label(panel, UDim2.new(1, -20, 0, 34), UDim2.fromOffset(10, 8))
+		title.TextSize = 20
+		title.TextXAlignment = Enum.TextXAlignment.Center
+		title.Text = "🏔️ МАТЧ НА 4 ИГРОКА"
+		title.ZIndex = 31
+
+		for i = 1, 4 do
+			local row =
+				label(panel, UDim2.new(1, -24, 0, 28), UDim2.fromOffset(12, 46 + (i - 1) * 32))
+			row.TextSize = 16
+			row.TextXAlignment = Enum.TextXAlignment.Left
+			row.ZIndex = 31
+			table.insert(lobbyRows, row)
+		end
+
+		local tLbl = label(panel, UDim2.new(1, -20, 0, 24), UDim2.fromOffset(10, 178))
+		tLbl.TextSize = 15
+		tLbl.TextXAlignment = Enum.TextXAlignment.Center
+		tLbl.TextColor3 = Color3.fromRGB(160, 230, 255)
+		tLbl.ZIndex = 31
+		lobbyTimerLabel = tLbl
+
+		local startBtn = Instance.new("TextButton")
+		startBtn.Size = UDim2.fromOffset(190, 34)
+		startBtn.Position = UDim2.new(0.5, -95, 1, -42)
+		startBtn.BackgroundColor3 = Color3.fromRGB(45, 175, 95)
+		startBtn.BorderSizePixel = 0
+		startBtn.Font = Enum.Font.GothamBold
+		startBtn.TextSize = 16
+		startBtn.TextColor3 = WHITE
+		startBtn.Text = "▶ СТАРТ СЕЙЧАС"
+		startBtn.ZIndex = 31
+		startBtn.Parent = panel
+		round(startBtn, 0.25)
+		startBtn.Activated:Connect(function()
+			if lobbyStartCallback then
+				lobbyStartCallback()
+			end
+		end)
+
+		lobbyPanel = panel
+	end
+
+	local p = lobbyPanel :: Frame
+	p.Visible = visible
+	if not visible then
+		return
+	end
+	if slots then
+		for i = 1, 4 do
+			local slot = slots[i]
+			local row = lobbyRows[i]
+			if slot and row then
+				local tag = if slot.isBot then "🤖 Бот" else "👤 Игрок"
+				row.Text = string.format("%d. %s  (%s)", i, slot.name, tag)
+				row.TextColor3 = if slot.isBot then Color3.fromRGB(190, 205, 225) else WHITE
+			elseif row then
+				row.Text = string.format("%d. Ожидание...", i)
+			end
+		end
+	end
+	if lobbyTimerLabel then
+		local sec = math.max(0, math.ceil(countdownSec or 0))
+		lobbyTimerLabel.Text = string.format("Автостарт через %d с...", sec)
+	end
 end
 
 return Hud

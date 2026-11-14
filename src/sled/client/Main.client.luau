@@ -60,7 +60,32 @@ local boostTime = 0
 local spinOutTime = 0
 local bumpCooldown = 0
 local stuckTime = 0
+local magnetTime = 0
 local playerRank = 1
+
+local sledNet = ReplicatedStorage:FindFirstChild("SledNet")
+local matchStateEv = if sledNet then sledNet:FindFirstChild("MatchState") :: RemoteEvent? else nil
+local requestStartEv = if sledNet
+	then sledNet:FindFirstChild("RequestStart") :: RemoteEvent?
+	else nil
+local sledPoseEv = if sledNet
+	then sledNet:FindFirstChild("SledPose") :: UnreliableRemoteEvent?
+	else nil
+local powerupUsedEv = if sledNet then sledNet:FindFirstChild("PowerupUsed") :: RemoteEvent? else nil
+
+type RemoteRacer = {
+	userId: number,
+	name: string,
+	model: Model,
+	s: number,
+	d: number,
+	v: number,
+	targetCf: CFrame,
+	currentCf: CFrame,
+}
+local remoteRacers: { [number]: RemoteRacer } = {}
+local serverMatchPhase: string = if matchStateEv then "lobby" else "racing"
+local poseSyncAccum = 0
 
 -- Загружаем точные координаты деревьев и валунов с сугробов обочины от сервера
 local function syncTrackProps(inst: Instance?)
@@ -648,6 +673,31 @@ local function usePlayerItem()
 		if not shieldVis then
 			shieldVis = PowerupEffects.CreateShield(Workspace)
 		end
+	elseif item == "FreezeWave" then
+		local origin = if phys3D
+			then phys3D.chassis.Position
+			else Track.Frame(track, state.s, state.d).Position
+		PowerupEffects.SpawnFreezeWave(origin)
+		camKick = math.max(camKick, C.BankKick * 1.1)
+		for _, r in rivals do
+			if not r.shieldActive then
+				local rPos = Track.Frame(track, r.state.s, r.state.d).Position
+				if (rPos - origin).Magnitude <= P.FreezeWave.Radius then
+					r.state.v *= P.FreezeWave.SlowFactor
+					r.spinOutTime = math.max(r.spinOutTime, P.FreezeWave.Duration * 0.65)
+				end
+			end
+		end
+	elseif item == "IceMine" then
+		PowerupEffects.SpawnIceMine(track, state.s, state.d, "player")
+	elseif item == "Magnet" then
+		magnetTime = P.Magnet.Duration
+		SledView.Land(0.6)
+	end
+
+	if powerupUsedEv then
+		local aimCf = if phys3D then SledPhysics3D.Pose(phys3D) else nil
+		powerupUsedEv:FireServer(item, state.s, state.d, state.v, nil, aimCf)
 	end
 end
 
@@ -962,12 +1012,22 @@ local function updateRun(dt: number, steer: number, brake: boolean)
 	-- Синхронизируем 3D-модели шагающих по трассе йети с физическим расчётом SledSim (Obstacles.D)
 	updateRoadYetis()
 
+	-- Снежный магнит: притягивает коробки издалека и даёт тягу в слипстриме
+	local pickupRad = P.BoxRadius
+	if magnetTime > 0 then
+		magnetTime = math.max(0, magnetTime - dt)
+		pickupRad = P.Magnet.MagnetRadius
+		if phys3D and findNearestRivalAhead() then
+			phys3D.chassis.AssemblyLinearVelocity += phys3D.chassis.CFrame.LookVector * (P.Magnet.SlipstreamAccel * dt)
+		end
+	end
+
 	-- Подбор боксов игроком
 	for _, box in boxes do
 		if
 			box.active
-			and math.abs(state.s - box.s) < P.BoxRadius
-			and math.abs(state.d - box.d) < P.BoxRadius
+			and math.abs(state.s - box.s) < pickupRad
+			and math.abs(state.d - box.d) < pickupRad
 		then
 			box.active = false
 			box.cooldown = P.BoxRespawn
@@ -1419,8 +1479,9 @@ local function onFrame(frameTime: number)
 			)
 			surfaceReady = hit ~= nil
 		end
-		if (ready and surfaceReady) or modeTime > 30.0 then
+		if ((ready and surfaceReady) or modeTime > 30.0) and serverMatchPhase == "racing" then
 			Hud.SetLoading(false)
+			Hud.SetLobby(false)
 			updateRoadYetis()
 			if phys3D then
 				SledPhysics3D.Place(phys3D, track, track.startS, 0, 0)
@@ -1440,6 +1501,27 @@ local function onFrame(frameTime: number)
 		updateFall(dt)
 	else
 		updateFinish(dt)
+	end
+
+	-- Репликация 3D-позиции санок между игроками в матче на 4 человек
+	if sledPoseEv and (mode == "run" or mode == "fall") then
+		poseSyncAccum += dt
+		if poseSyncAccum >= 0.05 then
+			poseSyncAccum = 0
+			sledPoseEv:FireServer(
+				sledFrame(),
+				state.s,
+				state.d,
+				state.v,
+				shieldActive,
+				boostTime > 0,
+				spinOutTime > 0
+			)
+		end
+	end
+	for _, rr in remoteRacers do
+		rr.currentCf = rr.currentCf:Lerp(rr.targetCf, 1 - math.exp(-16 * dt))
+		rr.model:PivotTo(rr.currentCf)
 	end
 
 	if phys3D then
@@ -1562,6 +1644,98 @@ end
 RunService.PreSimulation:Connect(function(dt: number)
 	if phys3D and (mode == "run" or mode == "fall") then
 		SledPhysics3D.Step(phys3D, track, math.min(dt, R.MaxFrameTime), pendingSteer, pendingBrake)
+	end
+end)
+
+if matchStateEv then
+	matchStateEv.OnClientEvent:Connect(function(payload: any)
+		if typeof(payload) ~= "table" then
+			return
+		end
+		serverMatchPhase = payload.phase or "lobby"
+		if serverMatchPhase == "lobby" then
+			Hud.SetLoading(false)
+			Hud.SetLobby(true, payload.slots, payload.timer, function()
+				if requestStartEv then
+					requestStartEv:FireServer()
+				end
+			end)
+		else
+			Hud.SetLobby(false)
+		end
+	end)
+end
+
+if sledPoseEv then
+	sledPoseEv.OnClientEvent:Connect(
+		function(userId: number, cf: CFrame, s: number, d: number, v: number)
+			local rr = remoteRacers[userId]
+			if not rr then
+				local pName = "Player"
+				for _, pl in Players:GetPlayers() do
+					if pl.UserId == userId then
+						pName = pl.DisplayName
+						break
+					end
+				end
+				local model = createRivalModel(
+					pName,
+					Color3.fromRGB(70, 235, 160),
+					Color3.fromRGB(20, 60, 45)
+				)
+				rr = {
+					userId = userId,
+					name = pName,
+					model = model,
+					s = s,
+					d = d,
+					v = v,
+					targetCf = cf,
+					currentCf = cf,
+				}
+				remoteRacers[userId] = rr
+			else
+				rr.s = s
+				rr.d = d
+				rr.v = v
+				rr.targetCf = cf
+			end
+		end
+	)
+end
+
+if powerupUsedEv then
+	powerupUsedEv.OnClientEvent:Connect(
+		function(
+			userId: number,
+			kind: string,
+			s: number,
+			d: number,
+			v: number,
+			targetId: string?,
+			cf: CFrame?
+		)
+			local owner = "player_" .. tostring(userId)
+			if kind == "Rocket" then
+				PowerupEffects.SpawnRocket(track, s + 10, d, targetId, v, owner)
+			elseif kind == "Fireworks" then
+				PowerupEffects.SpawnFireworks(track, s + 10, d, v, owner, cf)
+			elseif kind == "Snowball" then
+				PowerupEffects.SpawnSnowballs(track, s, v, owner)
+			elseif kind == "IceMine" then
+				PowerupEffects.SpawnIceMine(track, s, d, owner)
+			elseif kind == "FreezeWave" and cf then
+				PowerupEffects.SpawnFreezeWave(cf.Position)
+			end
+		end
+	)
+end
+
+Players.PlayerRemoving:Connect(function(pl: Player)
+	local rr = remoteRacers[pl.UserId]
+	if rr then
+		rr.model:Destroy()
+		remoteRacers[pl.UserId] = nil
 	end
 end)
 

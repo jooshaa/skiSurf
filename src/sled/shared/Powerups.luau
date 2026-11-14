@@ -6,7 +6,15 @@ local Track = require(script.Parent.Track)
 
 local P = SledConfig.Powerups
 
-export type Kind = "Rocket" | "Fireworks" | "Boost" | "Shield" | "Snowball"
+export type Kind =
+	"Rocket"
+	| "Fireworks"
+	| "Boost"
+	| "Shield"
+	| "Snowball"
+	| "FreezeWave"
+	| "IceMine"
+	| "Magnet"
 
 export type Box = {
 	id: number,
@@ -61,8 +69,7 @@ function Powerups.ResetBoxes(boxes: { Box })
 	end
 end
 
--- Выбор предмета в зависимости от позиции гонщика (резиновая лента / Beach Buggy Racing balance):
--- включает Ракети (Rocket), Салют вперёд (Fireworks), Лавину снежных шаров (Snowball), Нитро (Boost) и Щит на время (Shield)
+-- Выбор предмета в зависимости от позиции гонщика (8 случайных способностей в стиле BB Racing):
 function Powerups.RollItem(rank: number, totalRacers: number?): Kind
 	local total = totalRacers or 4
 	local roll = math.random()
@@ -70,43 +77,57 @@ function Powerups.RollItem(rank: number, totalRacers: number?): Kind
 	local isLeading = rank == 1
 
 	if isTrailing then
-		-- Отстающий: чаще получает ракету, буст или снежную лавину впереди
-		if roll < 0.36 then
+		-- Отстающий: чаще получает ракету, буст, магнит или снежную лавину
+		if roll < 0.30 then
 			return "Rocket"
-		elseif roll < 0.58 then
+		elseif roll < 0.48 then
 			return "Boost"
+		elseif roll < 0.62 then
+			return "Magnet"
 		elseif roll < 0.76 then
 			return "Snowball"
-		elseif roll < 0.90 then
+		elseif roll < 0.86 then
 			return "Fireworks"
+		elseif roll < 0.94 then
+			return "FreezeWave"
 		else
 			return "Shield"
 		end
 	elseif isLeading then
-		-- Лидер: чаще получает щит на время, снежную атаку или прямой салют
-		if roll < 0.32 then
+		-- Лидер: чаще получает щит, ледяную мину, ледяную волну или снежную атаку
+		if roll < 0.24 then
 			return "Shield"
-		elseif roll < 0.58 then
+		elseif roll < 0.44 then
+			return "IceMine"
+		elseif roll < 0.62 then
 			return "Snowball"
-		elseif roll < 0.80 then
+		elseif roll < 0.76 then
+			return "FreezeWave"
+		elseif roll < 0.88 then
 			return "Fireworks"
-		elseif roll < 0.90 then
+		elseif roll < 0.94 then
 			return "Rocket"
 		else
 			return "Boost"
 		end
 	else
-		-- Середина пелотона: равномерный баланс всех 5 способностей
-		if roll < 0.24 then
+		-- Середина пелотона: равномерный микс всех 8 способностей
+		if roll < 0.17 then
 			return "Rocket"
-		elseif roll < 0.46 then
+		elseif roll < 0.31 then
 			return "Snowball"
-		elseif roll < 0.66 then
+		elseif roll < 0.44 then
 			return "Fireworks"
-		elseif roll < 0.84 then
+		elseif roll < 0.57 then
 			return "Shield"
-		else
+		elseif roll < 0.70 then
 			return "Boost"
+		elseif roll < 0.81 then
+			return "FreezeWave"
+		elseif roll < 0.91 then
+			return "IceMine"
+		else
+			return "Magnet"
 		end
 	end
 end
