@@ -65,9 +65,8 @@ local playerRank = 1
 
 local sledNet = ReplicatedStorage:FindFirstChild("SledNet")
 local matchStateEv = if sledNet then sledNet:FindFirstChild("MatchState") :: RemoteEvent? else nil
-local requestStartEv = if sledNet
-	then sledNet:FindFirstChild("RequestStart") :: RemoteEvent?
-	else nil
+local clientReadyEv = if sledNet then sledNet:FindFirstChild("ClientReady") :: RemoteEvent? else nil
+local sentClientReady = false
 local sledPoseEv = if sledNet
 	then sledNet:FindFirstChild("SledPose") :: UnreliableRemoteEvent?
 	else nil
@@ -1479,7 +1478,14 @@ local function onFrame(frameTime: number)
 			)
 			surfaceReady = hit ~= nil
 		end
-		if ((ready and surfaceReady) or modeTime > 30.0) and serverMatchPhase == "racing" then
+		local isLoaded = (ready and surfaceReady) or modeTime > 30.0
+		if isLoaded and not sentClientReady then
+			sentClientReady = true
+			if clientReadyEv then
+				clientReadyEv:FireServer()
+			end
+		end
+		if isLoaded and serverMatchPhase == "racing" then
 			Hud.SetLoading(false)
 			Hud.SetLobby(false)
 			updateRoadYetis()
@@ -1655,11 +1661,7 @@ if matchStateEv then
 		serverMatchPhase = payload.phase or "lobby"
 		if serverMatchPhase == "lobby" then
 			Hud.SetLoading(false)
-			Hud.SetLobby(true, payload.slots, payload.timer, function()
-				if requestStartEv then
-					requestStartEv:FireServer()
-				end
-			end)
+			Hud.SetLobby(true, payload.slots, payload.timer, payload.realCount)
 		else
 			Hud.SetLobby(false)
 		end

@@ -18,9 +18,9 @@ local matchStateEv = Instance.new("RemoteEvent")
 matchStateEv.Name = "MatchState"
 matchStateEv.Parent = net
 
-local requestStartEv = Instance.new("RemoteEvent")
-requestStartEv.Name = "RequestStart"
-requestStartEv.Parent = net
+local clientReadyEv = Instance.new("RemoteEvent")
+clientReadyEv.Name = "ClientReady"
+clientReadyEv.Parent = net
 
 local sledPoseEv = Instance.new("UnreliableRemoteEvent")
 sledPoseEv.Name = "SledPose"
@@ -34,14 +34,28 @@ export type SlotInfo = {
 	userId: number,
 	name: string,
 	isBot: boolean,
+	ready: boolean,
+	waiting: boolean,
 	slot: number,
 }
 
 local phase: "lobby" | "racing" = "lobby"
 local lobbyTimer = M.LobbyWait
-local startRequested = false
+local readyPlayers: { [number]: boolean } = {}
 
-local function buildSlots(): { SlotInfo }
+local function areAllPlayersReady(players: { Player }): boolean
+	if #players == 0 then
+		return false
+	end
+	for i = 1, math.min(#players, M.MaxRacers) do
+		if not readyPlayers[players[i].UserId] then
+			return false
+		end
+	end
+	return true
+end
+
+local function buildSlots(includeBots: boolean): { SlotInfo }
 	local slots: { SlotInfo } = {}
 	local players = Players:GetPlayers()
 	for i = 1, math.min(#players, M.MaxRacers) do
@@ -50,34 +64,53 @@ local function buildSlots(): { SlotInfo }
 			userId = p.UserId,
 			name = p.DisplayName,
 			isBot = false,
+			ready = readyPlayers[p.UserId] == true,
+			waiting = false,
 			slot = #slots + 1,
 		})
 	end
 	local botIdx = 0
 	while #slots < M.MaxRacers do
-		botIdx += 1
-		local botName = RV.Names[botIdx] or ("Bot" .. botIdx)
-		table.insert(slots, {
-			userId = -botIdx,
-			name = botName,
-			isBot = true,
-			slot = #slots + 1,
-		})
+		if includeBots then
+			botIdx += 1
+			local botName = RV.Names[botIdx] or ("Bot" .. botIdx)
+			table.insert(slots, {
+				userId = -botIdx,
+				name = botName,
+				isBot = true,
+				ready = true,
+				waiting = false,
+				slot = #slots + 1,
+			})
+		else
+			table.insert(slots, {
+				userId = 0,
+				name = "Ожидание игрока...",
+				isBot = false,
+				ready = false,
+				waiting = true,
+				slot = #slots + 1,
+			})
+		end
 	end
 	return slots
 end
 
-local function broadcastState()
+local function broadcastState(includeBots: boolean)
+	local players = Players:GetPlayers()
 	matchStateEv:FireAllClients({
 		phase = phase,
-		timer = lobbyTimer,
-		slots = buildSlots(),
+		timer = math.max(0, lobbyTimer),
+		realCount = math.min(#players, M.MaxRacers),
+		allReady = areAllPlayersReady(players),
+		slots = buildSlots(includeBots),
 	})
 end
 
-requestStartEv.OnServerEvent:Connect(function()
+clientReadyEv.OnServerEvent:Connect(function(player: Player)
+	readyPlayers[player.UserId] = true
 	if phase == "lobby" then
-		startRequested = true
+		broadcastState(false)
 	end
 end)
 
@@ -125,23 +158,27 @@ powerupUsedEv.OnServerEvent:Connect(
 )
 
 Players.PlayerAdded:Connect(function(player: Player)
+	readyPlayers[player.UserId] = false
 	task.defer(function()
+		local players = Players:GetPlayers()
 		matchStateEv:FireClient(player, {
 			phase = phase,
-			timer = lobbyTimer,
-			slots = buildSlots(),
+			timer = math.max(0, lobbyTimer),
+			realCount = math.min(#players, M.MaxRacers),
+			allReady = areAllPlayersReady(players),
+			slots = buildSlots(phase == "racing"),
 		})
 	end)
 end)
 
-Players.PlayerRemoving:Connect(function()
+Players.PlayerRemoving:Connect(function(player: Player)
+	readyPlayers[player.UserId] = nil
 	task.defer(function()
 		if #Players:GetPlayers() == 0 then
 			phase = "lobby"
 			lobbyTimer = M.LobbyWait
-			startRequested = false
 		elseif phase == "lobby" then
-			broadcastState()
+			broadcastState(false)
 		end
 	end)
 end)
@@ -153,7 +190,6 @@ task.spawn(function()
 		if #players == 0 then
 			phase = "lobby"
 			lobbyTimer = M.LobbyWait
-			startRequested = false
 			continue
 		end
 
@@ -161,13 +197,16 @@ task.spawn(function()
 			local mountain = Workspace:FindFirstChild("Mountain")
 			local trackReady = mountain ~= nil and mountain:GetAttribute("TrackReady") == true
 			if trackReady then
-				lobbyTimer = math.max(0, lobbyTimer - 0.25)
+				lobbyTimer -= 0.25
 			end
-			broadcastState()
-			if trackReady and (lobbyTimer <= 0 or startRequested) then
+			local allReady = areAllPlayersReady(players)
+			local fullLobby = #players >= M.MaxRacers and allReady
+			local timerDone = lobbyTimer <= 0 and (allReady or lobbyTimer <= -4)
+			if trackReady and (fullLobby or timerDone) then
 				phase = "racing"
-				startRequested = false
-				broadcastState()
+				broadcastState(true)
+			else
+				broadcastState(false)
 			end
 		end
 	end

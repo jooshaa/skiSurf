@@ -452,20 +452,16 @@ end
 local lobbyPanel: Frame? = nil
 local lobbyRows: { TextLabel } = {}
 local lobbyTimerLabel: TextLabel? = nil
-local lobbyStartCallback: (() -> ())? = nil
 
 function Hud.SetLobby(
 	visible: boolean,
-	slots: { { name: string, isBot: boolean } }?,
+	slots: { { name: string, isBot: boolean, ready: boolean?, waiting: boolean? } }?,
 	countdownSec: number?,
-	onStartNow: (() -> ())?
+	realCount: number?
 )
-	if onStartNow then
-		lobbyStartCallback = onStartNow
-	end
 	if not lobbyPanel then
 		local panel =
-			frame(gui, UDim2.fromOffset(340, 250), UDim2.new(0.5, -170, 0.5, -125), DARK, 0.18)
+			frame(gui, UDim2.fromOffset(360, 224), UDim2.new(0.5, -180, 0.5, -112), DARK, 0.18)
 		panel.Name = "LobbyPanel"
 		panel.ZIndex = 30
 		local title = label(panel, UDim2.new(1, -20, 0, 34), UDim2.fromOffset(10, 8))
@@ -483,30 +479,12 @@ function Hud.SetLobby(
 			table.insert(lobbyRows, row)
 		end
 
-		local tLbl = label(panel, UDim2.new(1, -20, 0, 24), UDim2.fromOffset(10, 178))
+		local tLbl = label(panel, UDim2.new(1, -20, 0, 26), UDim2.fromOffset(10, 184))
 		tLbl.TextSize = 15
 		tLbl.TextXAlignment = Enum.TextXAlignment.Center
 		tLbl.TextColor3 = Color3.fromRGB(160, 230, 255)
 		tLbl.ZIndex = 31
 		lobbyTimerLabel = tLbl
-
-		local startBtn = Instance.new("TextButton")
-		startBtn.Size = UDim2.fromOffset(190, 34)
-		startBtn.Position = UDim2.new(0.5, -95, 1, -42)
-		startBtn.BackgroundColor3 = Color3.fromRGB(45, 175, 95)
-		startBtn.BorderSizePixel = 0
-		startBtn.Font = Enum.Font.GothamBold
-		startBtn.TextSize = 16
-		startBtn.TextColor3 = WHITE
-		startBtn.Text = "▶ СТАРТ СЕЙЧАС"
-		startBtn.ZIndex = 31
-		startBtn.Parent = panel
-		round(startBtn, 0.25)
-		startBtn.Activated:Connect(function()
-			if lobbyStartCallback then
-				lobbyStartCallback()
-			end
-		end)
 
 		lobbyPanel = panel
 	end
@@ -516,22 +494,47 @@ function Hud.SetLobby(
 	if not visible then
 		return
 	end
+	local count = realCount or 0
 	if slots then
 		for i = 1, 4 do
 			local slot = slots[i]
 			local row = lobbyRows[i]
 			if slot and row then
-				local tag = if slot.isBot then "🤖 Бот" else "👤 Игрок"
-				row.Text = string.format("%d. %s  (%s)", i, slot.name, tag)
-				row.TextColor3 = if slot.isBot then Color3.fromRGB(190, 205, 225) else WHITE
+				if slot.waiting then
+					row.Text = string.format("%d. ⏳ Ожидание игрока...", i)
+					row.TextColor3 = Color3.fromRGB(160, 175, 195)
+				elseif slot.isBot then
+					row.Text = string.format("%d. %s  (🤖 Бот)", i, slot.name)
+					row.TextColor3 = Color3.fromRGB(190, 205, 225)
+				else
+					local status = if slot.ready
+						then "✅ Готов"
+						else "⏳ Загрузка..."
+					row.Text = string.format("%d. %s  (%s)", i, slot.name, status)
+					row.TextColor3 = if slot.ready
+						then Color3.fromRGB(145, 255, 175)
+						else Color3.fromRGB(255, 225, 140)
+				end
 			elseif row then
-				row.Text = string.format("%d. Ожидание...", i)
+				row.Text = string.format("%d. ⏳ Ожидание игрока...", i)
+				row.TextColor3 = Color3.fromRGB(160, 175, 195)
 			end
 		end
 	end
 	if lobbyTimerLabel then
 		local sec = math.max(0, math.ceil(countdownSec or 0))
-		lobbyTimerLabel.Text = string.format("Автостарт через %d с...", sec)
+		if count >= 4 then
+			lobbyTimerLabel.Text =
+				"Все 4 игрока на месте! Старт при готовности..."
+		elseif sec > 0 then
+			lobbyTimerLabel.Text = string.format(
+				"Сбор игроков (%d/4)... добор ботами через %d с",
+				count,
+				sec
+			)
+		else
+			lobbyTimerLabel.Text = "Запуск матча..."
+		end
 	end
 end
 
